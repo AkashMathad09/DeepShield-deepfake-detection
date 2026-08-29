@@ -3,7 +3,7 @@ import { Code2, Terminal, Copy, Check } from 'lucide-react';
 
 export const ApiDocs: React.FC = () => {
   const [activeLang, setActiveLang] = useState<'curl' | 'python' | 'node'>('python');
-  const [activeEndpoint, setActiveEndpoint] = useState<'image' | 'video'>('image');
+  const [activeEndpoint, setActiveEndpoint] = useState<'image' | 'video' | 'audio'>('image');
   const [copiedCode, setCopiedCode] = useState(false);
 
   const curlCodeImage = `curl -X POST http://localhost:3000/api/detect/image \\
@@ -14,6 +14,10 @@ export const ApiDocs: React.FC = () => {
   -H "Accept: application/json" \\
   -F "media=@interview_clip.mp4" \\
   -F "sampleFrames=16"`;
+
+  const curlCodeAudio = `curl -X POST http://localhost:3000/api/detect/audio \\
+  -H "Accept: application/json" \\
+  -F "media=@voice_recording.wav"`;
 
   const pythonCodeImage = `import requests
 
@@ -40,6 +44,19 @@ result = response.json()
 print(f"Video Verdict: {result['prediction']}")
 print(f"Avg Fake Probability: {result['result']['videoSummary']['averageFakeProbability']}")
 print(f"Highest Risk Frame: #{result['result']['videoSummary']['maxRiskFrame']['frameIndex']}")`;
+
+  const pythonCodeAudio = `import requests
+
+url = "http://localhost:3000/api/detect/audio"
+files = {"media": open("voice_recording.wav", "rb")}
+
+response = requests.post(url, files=files)
+data = response.json()
+
+print(f"Audio Verdict: {data['prediction']}")
+print(f"Fake Probability: {data['result']['fakeProbability']}")
+print(f"Vocoder Residuals: {data['result']['audioDetails']['neuralVocoderResiduals']}/100")
+print(f"Biological Breath Present: {data['result']['audioDetails']['breathInhalationPresent']}")`;
 
   const nodeCodeImage = `const fs = require('fs');
 const FormData = require('form-data');
@@ -76,13 +93,42 @@ async function analyzeVideo() {
 
 analyzeVideo();`;
 
+  const nodeCodeAudio = `const fs = require('fs');
+const FormData = require('form-data');
+const axios = require('axios');
+
+async function analyzeAudio() {
+  const form = new FormData();
+  form.append('media', fs.createReadStream('voice_recording.wav'));
+
+  const response = await axios.post('http://localhost:3000/api/detect/audio', form, {
+    headers: form.getHeaders(),
+  });
+
+  console.log('Audio Forensics:', response.data.result.audioDetails);
+}
+
+analyzeAudio();`;
+
   const getCodeSnippet = () => {
     if (activeLang === 'curl') {
-      return activeEndpoint === 'image' ? curlCodeImage : curlCodeVideo;
+      return activeEndpoint === 'image'
+        ? curlCodeImage
+        : activeEndpoint === 'video'
+        ? curlCodeVideo
+        : curlCodeAudio;
     } else if (activeLang === 'python') {
-      return activeEndpoint === 'image' ? pythonCodeImage : pythonCodeVideo;
+      return activeEndpoint === 'image'
+        ? pythonCodeImage
+        : activeEndpoint === 'video'
+        ? pythonCodeVideo
+        : pythonCodeAudio;
     } else {
-      return activeEndpoint === 'image' ? nodeCodeImage : nodeCodeVideo;
+      return activeEndpoint === 'image'
+        ? nodeCodeImage
+        : activeEndpoint === 'video'
+        ? nodeCodeVideo
+        : nodeCodeAudio;
     }
   };
 
@@ -151,7 +197,7 @@ analyzeVideo();`;
       <div className="rounded-3xl border border-white/10 bg-white/5 p-6 sm:p-8 space-y-4 backdrop-blur-xl shadow-xl">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-white/10 pb-4">
           {/* Endpoint Choice */}
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setActiveEndpoint('image')}
               className={`rounded-xl px-3.5 py-1.5 text-xs font-bold transition backdrop-blur-md ${
@@ -171,6 +217,16 @@ analyzeVideo();`;
               }`}
             >
               POST /api/detect/video
+            </button>
+            <button
+              onClick={() => setActiveEndpoint('audio')}
+              className={`rounded-xl px-3.5 py-1.5 text-xs font-bold transition backdrop-blur-md ${
+                activeEndpoint === 'audio'
+                  ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
+                  : 'bg-white/5 border border-white/10 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              POST /api/detect/audio
             </button>
           </div>
 

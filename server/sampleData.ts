@@ -2,13 +2,90 @@ import { SampleMediaItem } from '../src/types.js';
 import sharp from 'sharp';
 
 /**
+ * Creates a valid PCM 16-bit Mono WAV Buffer purely in memory
+ */
+function createWavBuffer(sampleRate: number, durationSeconds: number, sampleGenerator: (t: number, index: number) => number): Buffer {
+  const numSamples = Math.floor(sampleRate * durationSeconds);
+  const blockAlign = 2; // 16-bit mono
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = numSamples * 2;
+  const buffer = Buffer.alloc(44 + dataSize);
+
+  // RIFF chunk descriptor
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8);
+
+  // fmt sub-chunk
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16); // Subchunk1Size for PCM
+  buffer.writeUInt16LE(1, 20);  // AudioFormat 1 = PCM
+  buffer.writeUInt16LE(1, 22);  // NumChannels 1 = Mono
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(byteRate, 28);
+  buffer.writeUInt16LE(blockAlign, 32);
+  buffer.writeUInt16LE(16, 34); // BitsPerSample
+
+  // data sub-chunk
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataSize, 40);
+
+  let offset = 44;
+  for (let i = 0; i < numSamples; i++) {
+    const t = i / sampleRate;
+    let sample = sampleGenerator(t, i);
+    // Clamp to -1.0 .. 1.0
+    sample = Math.max(-1, Math.min(1, sample));
+    const intSample = Math.floor(sample * 32767);
+    buffer.writeInt16LE(intSample, offset);
+    offset += 2;
+  }
+
+  return buffer;
+}
+
+/**
  * Creates high-quality procedural test media buffers for 1-click testing.
  */
 export async function createSampleMediaBuffer(id: string): Promise<{ buffer: Buffer; mimeType: string }> {
   const width = 640;
   const height = 640;
 
-  if (id === 'sample-deepfake-swap') {
+  if (id === 'sample-voice-clone') {
+    // Generates a neural voice cloning acoustic test clip (metallic robotic formant, quantized silence)
+    const sampleRate = 22050;
+    const duration = 3.5;
+    const buffer = createWavBuffer(sampleRate, duration, (t) => {
+      // Periodic phrase with sharp robot harmonics and sudden cuts
+      if (t > 1.2 && t < 1.4) return 0; // Quantized unnatural silence
+      if (t > 2.6 && t < 2.8) return 0;
+      
+      const f0 = 180 + Math.floor(t * 2) * 20; // Step-quantized pitch (robotic)
+      const base = Math.sin(2 * Math.PI * f0 * t) * 0.4;
+      const vocoderHarmonic = Math.sin(2 * Math.PI * f0 * 3 * t) * 0.25 + Math.sin(2 * Math.PI * f0 * 5 * t) * 0.15;
+      const metallicComb = Math.sin(2 * Math.PI * 3400 * t) * 0.08;
+      return base + vocoderHarmonic + metallicComb;
+    });
+    return { buffer, mimeType: 'audio/wav' };
+  } else if (id === 'sample-authentic-voice') {
+    // Generates an authentic acoustic vocal sweep with natural smooth prosody and breathing noise
+    const sampleRate = 44100;
+    const duration = 4.0;
+    const buffer = createWavBuffer(sampleRate, duration, (t) => {
+      // Inhalation breath sound before phrase
+      if (t < 0.3) {
+        return (Math.random() * 2 - 1) * 0.08 * (1 - t / 0.3);
+      }
+      const pitchVibrato = 145 + Math.sin(2 * Math.PI * 5 * t) * 3 + Math.sin(2 * Math.PI * 0.8 * t) * 15;
+      const vowel =
+        Math.sin(2 * Math.PI * pitchVibrato * t) * 0.45 +
+        Math.sin(2 * Math.PI * pitchVibrato * 2 * t) * 0.2 +
+        Math.sin(2 * Math.PI * 750 * t) * 0.15 * Math.exp(-((t % 0.8) * 2)) +
+        (Math.random() * 2 - 1) * 0.02; // natural air aspiration
+      return vowel;
+    });
+    return { buffer, mimeType: 'audio/wav' };
+  } else if (id === 'sample-deepfake-swap') {
     // Generates a portrait with a distinct face patch having slight blending halo and mismatched noise
     const svg = `
       <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
@@ -205,5 +282,25 @@ export const SAMPLE_MEDIA_ITEMS: SampleMediaItem[] = [
     expectedLabel: 'REAL',
     description: 'Standard 30fps optical video stream with smooth biometric landmark trajectory and natural blinks.',
     manipulationDetails: 'Stable inter-frame lighting gradient. Temporal consistency index > 94%.',
+  },
+  {
+    id: 'sample-voice-clone',
+    title: 'AI Neural Voice Clone (TTS)',
+    mediaType: 'audio',
+    thumbnailUrl: '',
+    fileUrl: '/api/samples/sample-voice-clone/file',
+    expectedLabel: 'DEEPFAKE',
+    description: 'Synthesized neural speech showing metallic vocoder harmonics, quantized silences, and flat prosody.',
+    manipulationDetails: 'Neural vocoder residuals > 82%. Missing biological inhalation acoustics and abnormal formant dispersion.',
+  },
+  {
+    id: 'sample-authentic-voice',
+    title: 'Authentic Human Voice Recording',
+    mediaType: 'audio',
+    thumbnailUrl: '',
+    fileUrl: '/api/samples/sample-authentic-voice/file',
+    expectedLabel: 'REAL',
+    description: 'Natural human vocal recording with organic micro-pitch shimmer, vowel formant dynamics, and breath turbulence.',
+    manipulationDetails: 'Continuous vocal tract resonance score > 90%. Natural subglottal breath sounds present before phrases.',
   },
 ];

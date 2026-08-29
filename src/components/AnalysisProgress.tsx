@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Loader2, CheckCircle2, Cpu, Radio, Sparkles } from 'lucide-react';
 
 interface AnalysisProgressProps {
-  mediaType: 'image' | 'video';
+  mediaType: 'image' | 'video' | 'audio';
 }
 
 interface Stage {
@@ -19,7 +19,15 @@ export const AnalysisProgress: React.FC<AnalysisProgressProps> = ({ mediaType })
   ]);
 
   const stages: Stage[] =
-    mediaType === 'video'
+    mediaType === 'audio'
+      ? [
+          { label: 'Demuxing Audio Track', detail: 'Validating sampling rate, channels, and PCM codec parameters' },
+          { label: 'FFmpeg Spectrogram Generation', detail: 'Computing logarithmic STFT bi-spectral frequency matrix' },
+          { label: 'Formant Dispersion Analysis', detail: 'Extracting F1-F4 vocal tract resonances and glottal flow' },
+          { label: 'Neural Vocoder Residual Check', detail: 'Scanning high-frequency phase artifacts & HiFi-GAN signatures' },
+          { label: 'Breath & Prosody Calibration', detail: 'Evaluating biological inhalation pauses and micro-jitter' },
+        ]
+      : mediaType === 'video'
       ? [
           { label: 'Ingesting Video Stream', detail: 'Validating container format & demuxing tracks' },
           { label: 'FFmpeg Keyframe Extraction', detail: 'Sampling multi-frame keyframes across timeline' },
@@ -48,15 +56,25 @@ export const AnalysisProgress: React.FC<AnalysisProgressProps> = ({ mediaType })
     }, 280);
 
     const logInterval = setInterval(() => {
-      const logs = [
-        'Computing discrete cosine transform (DCT) spectral residuals...',
-        'Checking left/right corneal specular highlight geometry...',
-        'Scanning facial boundary perimeter for warping & alpha blend halos...',
-        'Analyzing high-frequency noise variance across RGB channels...',
-        'Correlating inter-frame optical flow vectors for micro-jitters...',
-        'Cross-verifying biometric landmarks with DeepShield benchmark database...',
-        'Generating Grad-CAM attention heatmap overlay...',
-      ];
+      const logs =
+        mediaType === 'audio'
+          ? [
+              'Extracting Short-Time Fourier Transform (STFT) spectrogram coefficients...',
+              'Calculating vocal tract formant dispersion (F1-F4 frequencies)...',
+              'Checking for phase quantization and neural vocoder cutoff bands...',
+              'Scanning for biological glottal air pulses and inhalation breath noise...',
+              'Cross-correlating micro-pitch jitter against ASVspoof benchmarks...',
+              'Analyzing ambient room impulse acoustic continuity...',
+            ]
+          : [
+              'Computing discrete cosine transform (DCT) spectral residuals...',
+              'Checking left/right corneal specular highlight geometry...',
+              'Scanning facial boundary perimeter for warping & alpha blend halos...',
+              'Analyzing high-frequency noise variance across RGB channels...',
+              'Correlating inter-frame optical flow vectors for micro-jitters...',
+              'Cross-verifying biometric landmarks with DeepShield benchmark database...',
+              'Generating Grad-CAM attention heatmap overlay...',
+            ];
       setTelemetryLogs((prev) => [...prev.slice(-4), logs[Math.floor(Math.random() * logs.length)]]);
     }, 350);
 
@@ -64,7 +82,7 @@ export const AnalysisProgress: React.FC<AnalysisProgressProps> = ({ mediaType })
       clearInterval(interval);
       clearInterval(logInterval);
     };
-  }, [stages.length]);
+  }, [stages.length, mediaType]);
 
   return (
     <div className="mx-auto max-w-2xl rounded-3xl border border-white/10 bg-white/5 p-6 sm:p-8 shadow-2xl backdrop-blur-xl">

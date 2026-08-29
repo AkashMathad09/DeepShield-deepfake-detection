@@ -71,6 +71,22 @@ export interface VideoAnalysisSummary {
   jitterIndex: number; // 0..100
 }
 
+export interface AudioForensicDetails {
+  durationSeconds: number;
+  sampleRate: number;
+  channels: number;
+  format: string;
+  voiceSynthesisProbability: number; // 0..100
+  vocalTractNaturalness: number; // 0..100 (100 = completely natural)
+  backgroundNoiseContinuity: number; // 0..100
+  breathingAcousticScore: number; // 0..100 (100 = natural biological breathing)
+  formantDispersionScore: number; // 0..100
+  pitchProsodyNaturalness: number; // 0..100
+  neuralVocoderArtifacts: number; // 0..100 (higher = more robotic artifacts)
+  spectrogramUrl?: string;
+  waveformUrl?: string;
+}
+
 export interface ModelMetadata {
   name: string;
   architecture: string;
@@ -85,7 +101,7 @@ export interface AnalysisResult {
   timestamp: string;
   filename: string;
   fileSize: number;
-  mediaType: 'image' | 'video';
+  mediaType: 'image' | 'video' | 'audio';
   mimeType: string;
   previewUrl: string;
   prediction: MediaPrediction;
@@ -102,6 +118,7 @@ export interface AnalysisResult {
   frequencySpectrumUrl?: string;
   videoTimeline?: FramePrediction[];
   videoSummary?: VideoAnalysisSummary;
+  audioSummary?: AudioForensicDetails;
   modelInfo: ModelMetadata;
   technicalDetails: {
     elaMeanDifference: number;
@@ -114,7 +131,7 @@ export interface AnalysisResult {
 export interface SampleMediaItem {
   id: string;
   title: string;
-  mediaType: 'image' | 'video';
+  mediaType: 'image' | 'video' | 'audio';
   thumbnailUrl: string;
   fileUrl: string;
   expectedLabel: MediaPrediction;

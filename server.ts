@@ -5,6 +5,7 @@ import os from 'os';
 import multer from 'multer';
 import { createServer as createViteServer } from 'vite';
 import { runImageForensics, runVideoForensics } from './server/forensics.js';
+import { runAudioForensics } from './server/audioForensics.js';
 import { createSampleMediaBuffer, SAMPLE_MEDIA_ITEMS } from './server/sampleData.js';
 
 // Setup file upload handling with multer (store in OS temp dir with safe unique names)
@@ -16,11 +17,31 @@ const upload = multer({
   fileFilter: (_req, file, cb) => {
     const allowedImageMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
     const allowedVideoMimes = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-msvideo', 'video/avi'];
+    const allowedAudioMimes = [
+      'audio/mpeg',
+      'audio/mp3',
+      'audio/wav',
+      'audio/x-wav',
+      'audio/ogg',
+      'audio/aac',
+      'audio/m4a',
+      'audio/x-m4a',
+      'audio/flac',
+      'audio/webm',
+    ];
 
-    if (allowedImageMimes.includes(file.mimetype) || allowedVideoMimes.includes(file.mimetype)) {
+    if (
+      allowedImageMimes.includes(file.mimetype) ||
+      allowedVideoMimes.includes(file.mimetype) ||
+      allowedAudioMimes.includes(file.mimetype)
+    ) {
       cb(null, true);
     } else {
-      cb(new Error(`Unsupported media format: ${file.mimetype}. Supported: JPG, PNG, WEBP, MP4, MOV, WEBM.`));
+      cb(
+        new Error(
+          `Unsupported media format: ${file.mimetype}. Supported: JPG, PNG, WEBP, MP4, MOV, WEBM, MP3, WAV, OGG, M4A, FLAC.`
+        )
+      );
     }
   },
 });
@@ -44,6 +65,7 @@ async function startServer() {
       capabilities: {
         imageForensics: true,
         videoTemporalAnalysis: true,
+        audioForensics: true,
         errorLevelAnalysis: true,
         multimodalNeuralInference: true,
       },
@@ -80,7 +102,12 @@ async function startServer() {
         return res.status(404).json({ success: false, error: 'Sample not found' });
       }
 
-      if (sampleMeta.mediaType === 'video') {
+      if (sampleMeta.mediaType === 'audio') {
+        const { buffer, mimeType } = await createSampleMediaBuffer(id);
+        const previewDataUri = `data:${mimeType};base64,${buffer.toString('base64')}`;
+        const result = await runAudioForensics(buffer, `${sampleMeta.title}.wav`, mimeType, previewDataUri);
+        return res.json({ success: true, result });
+      } else if (sampleMeta.mediaType === 'video') {
         // Run video pipeline on generated sample video/frames
         const { buffer, mimeType } = await createSampleMediaBuffer(id);
         const tempPath = path.join(os.tmpdir(), `sample-vid-${Date.now()}.mp4`);
@@ -223,6 +250,47 @@ async function startServer() {
       return res.status(500).json({
         success: false,
         error: err.message || 'An error occurred during video keyframe forensic extraction.',
+      });
+    } finally {
+      if (filePath) {
+        await fs.unlink(filePath).catch(() => {});
+      }
+    }
+  });
+
+  // 7. Audio Detection Endpoint (POST /api/detect/audio)
+  app.post('/api/detect/audio', upload.single('media'), async (req: Request, res: Response) => {
+    let filePath: string | null = null;
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          error: 'No audio file uploaded. Please select a valid MP3, WAV, OGG, M4A, AAC, or FLAC audio file.',
+        });
+      }
+
+      filePath = req.file.path;
+      const originalName = req.file.originalname || 'uploaded-audio.wav';
+      const mimeType = req.file.mimetype || 'audio/wav';
+
+      const audioBuffer = await fs.readFile(filePath);
+      const previewDataUri = `data:${mimeType};base64,${audioBuffer.toString('base64')}`;
+
+      const result = await runAudioForensics(audioBuffer, originalName, mimeType, previewDataUri);
+
+      return res.json({
+        success: true,
+        prediction: result.prediction,
+        confidence: result.confidence,
+        media_type: 'audio',
+        processing_time: result.modelInfo.executionTimeMs / 1000,
+        result,
+      });
+    } catch (err: any) {
+      console.error('Error in /api/detect/audio:', err);
+      return res.status(500).json({
+        success: false,
+        error: err.message || 'An error occurred during audio deepfake forensic analysis.',
       });
     } finally {
       if (filePath) {

@@ -10,6 +10,12 @@ export const TechnologySection: React.FC = () => {
       accuracy: '98.4% AUC',
     },
     {
+      name: 'Neural Audio & ASVspoof Bi-Spectral Engine',
+      type: 'Logarithmic STFT Spectrogram + ResNet Classifier',
+      desc: 'Extracts 2048-point Short-Time Fourier Transform frequency matrices to detect neural vocoder cutoffs, metallic phase artifacts, synthetic prosody, and missing biological breath acoustics.',
+      accuracy: '97.2% AUC',
+    },
+    {
       name: 'Error Level Analysis (ELA) Core Engine',
       type: '8x8 DCT Compression Quantization Analysis',
       desc: 'Measures residual compression divergence between local image regions by recompressing at a fixed 90% quality level and evaluating spatial delta matrices.',
@@ -35,6 +41,12 @@ export const TechnologySection: React.FC = () => {
       samples: '1.8M+ frames',
       manipulations: 'Deepfakes, Face2Face, FaceSwap, NeuralTextures',
       benchmark: '0.982 AUC',
+    },
+    {
+      name: 'ASVspoof (2019/2021)',
+      samples: '250K+ audio utterances',
+      manipulations: 'Neural TTS voice clones, voice conversion (VC), replay attacks',
+      benchmark: '0.974 AUC',
     },
     {
       name: 'Deepfake Detection Challenge (DFDC)',

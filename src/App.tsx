@@ -15,7 +15,7 @@ import { AlertCircle, RefreshCw } from 'lucide-react';
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('studio');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisMediaType, setAnalysisMediaType] = useState<'image' | 'video'>('image');
+  const [analysisMediaType, setAnalysisMediaType] = useState<'image' | 'video' | 'audio'>('image');
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [samples, setSamples] = useState<SampleMediaItem[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -64,8 +64,10 @@ export default function App() {
   const handleAnalyzeFile = async (file: File, sampleFrames: number) => {
     setErrorMsg(null);
     setIsAnalyzing(true);
-    const isVideo = file.type.startsWith('video/');
-    setAnalysisMediaType(isVideo ? 'video' : 'image');
+    const isAudio =
+      file.type.startsWith('audio/') || /\.(mp3|wav|ogg|aac|m4a|flac)$/i.test(file.name);
+    const isVideo = !isAudio && file.type.startsWith('video/');
+    setAnalysisMediaType(isAudio ? 'audio' : isVideo ? 'video' : 'image');
 
     const formData = new FormData();
     formData.append('media', file);
@@ -74,7 +76,11 @@ export default function App() {
     }
 
     try {
-      const endpoint = isVideo ? '/api/detect/video' : '/api/detect/image';
+      const endpoint = isAudio
+        ? '/api/detect/audio'
+        : isVideo
+        ? '/api/detect/video'
+        : '/api/detect/image';
       const response = await fetch(endpoint, {
         method: 'POST',
         body: formData,
@@ -100,7 +106,7 @@ export default function App() {
     setErrorMsg(null);
     setIsAnalyzing(true);
     const sample = samples.find((s) => s.id === sampleId);
-    setAnalysisMediaType(sample?.mediaType === 'video' ? 'video' : 'image');
+    setAnalysisMediaType(sample?.mediaType || 'image');
 
     try {
       const response = await fetch(`/api/samples/${sampleId}/analyze`, {

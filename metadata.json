@@ -1,6 +1,6 @@
 {
   "name": "DeepShield - Deepfake Detection & Media Forensics",
-  "description": "Enterprise-grade AI and computer vision system to detect deepfakes, face swaps, and synthetic media in images and videos with confidence scoring, frame-level analysis, and ELA heatmaps.",
+  "description": "Enterprise-grade AI, computer vision, and acoustic forensics system to detect deepfakes, face swaps, synthetic audio clones, and manipulated media in images, videos, and audio with confidence scoring, frame-level analysis, and STFT spectrogram heatmaps.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

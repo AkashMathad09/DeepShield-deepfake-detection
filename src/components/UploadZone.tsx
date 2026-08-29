@@ -3,10 +3,12 @@ import {
   UploadCloud,
   FileVideo,
   FileImage,
+  FileAudio,
   X,
   AlertCircle,
   Zap,
   Sliders,
+  Music,
 } from 'lucide-react';
 import { SampleMediaItem } from '../types';
 
@@ -40,18 +42,40 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
     'video/webm',
     'video/x-msvideo',
     'video/avi',
+    'audio/mpeg',
+    'audio/mp3',
+    'audio/wav',
+    'audio/x-wav',
+    'audio/ogg',
+    'audio/aac',
+    'audio/m4a',
+    'audio/x-m4a',
+    'audio/flac',
+    'audio/webm',
   ];
 
   const handleFile = (file: File) => {
     setErrorMsg(null);
-    if (!allowedTypes.includes(file.type)) {
-      setErrorMsg('Unsupported format. Please upload JPG, PNG, WEBP, MP4, MOV, or WEBM.');
+    const isExtensionAudio = /\.(mp3|wav|ogg|aac|m4a|flac)$/i.test(file.name);
+    const isAudioType = file.type.startsWith('audio/') || isExtensionAudio;
+
+    if (!allowedTypes.includes(file.type) && !isExtensionAudio) {
+      setErrorMsg('Unsupported format. Please upload JPG, PNG, WEBP, MP4, MOV, WEBM, MP3, WAV, OGG, or M4A.');
       return;
     }
 
-    const maxSize = file.type.startsWith('video/') ? 100 * 1024 * 1024 : 50 * 1024 * 1024;
+    const maxSize = file.type.startsWith('video/')
+      ? 100 * 1024 * 1024
+      : isAudioType
+      ? 40 * 1024 * 1024
+      : 50 * 1024 * 1024;
+
     if (file.size > maxSize) {
-      setErrorMsg(`File size exceeds limit (${file.type.startsWith('video/') ? '100MB' : '50MB'}).`);
+      setErrorMsg(
+        `File size exceeds limit (${
+          file.type.startsWith('video/') ? '100MB' : isAudioType ? '40MB' : '50MB'
+        }).`
+      );
       return;
     }
 
@@ -95,6 +119,9 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
   };
 
   const isVideo = selectedFile?.type.startsWith('video/');
+  const isAudio =
+    selectedFile?.type.startsWith('audio/') ||
+    (selectedFile && /\.(mp3|wav|ogg|aac|m4a|flac)$/i.test(selectedFile.name));
 
   return (
     <div className="space-y-6">
@@ -115,7 +142,7 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
         <input
           ref={fileInputRef}
           type="file"
-          accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,.webm,.avi"
+          accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,.webm,.avi,.mp3,.wav,.ogg,.m4a,.aac,.flac"
           className="hidden"
           onChange={(e) => {
             if (e.target.files && e.target.files[0]) {
@@ -126,18 +153,31 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
 
         {selectedFile ? (
           <div className="w-full max-w-lg space-y-4">
-            <div className="relative mx-auto max-h-56 overflow-hidden rounded-2xl border border-white/10 bg-slate-900 shadow-inner">
+            <div className="relative mx-auto max-h-56 overflow-hidden rounded-2xl border border-white/10 bg-slate-900 shadow-inner p-4">
               {isVideo ? (
                 <video
                   src={previewUrl || ''}
                   controls
-                  className="mx-auto max-h-56 w-full object-contain"
+                  className="mx-auto max-h-48 w-full object-contain"
                 />
+              ) : isAudio ? (
+                <div className="flex flex-col items-center justify-center py-6 space-y-4">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shadow-lg">
+                    <Music className="h-7 w-7 animate-pulse" />
+                  </div>
+                  <div className="w-full max-w-sm">
+                    <audio
+                      src={previewUrl || ''}
+                      controls
+                      className="w-full h-10 rounded-lg accent-blue-500"
+                    />
+                  </div>
+                </div>
               ) : (
                 <img
                   src={previewUrl || ''}
                   alt="Upload preview"
-                  className="mx-auto max-h-56 w-full object-contain"
+                  className="mx-auto max-h-48 w-full object-contain"
                 />
               )}
               <button
@@ -154,13 +194,15 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
               <div className="flex items-center space-x-3 overflow-hidden">
                 {isVideo ? (
                   <FileVideo className="h-5 w-5 flex-shrink-0 text-blue-400" />
+                ) : isAudio ? (
+                  <FileAudio className="h-5 w-5 flex-shrink-0 text-indigo-400" />
                 ) : (
                   <FileImage className="h-5 w-5 flex-shrink-0 text-blue-400" />
                 )}
                 <div className="truncate">
                   <p className="truncate font-medium text-slate-200">{selectedFile.name}</p>
                   <p className="text-slate-400 font-mono text-[11px]">
-                    {formatFileSize(selectedFile.size)} • {selectedFile.type.toUpperCase()}
+                    {formatFileSize(selectedFile.size)} • {selectedFile.type ? selectedFile.type.toUpperCase() : 'AUDIO STREAM'}
                   </p>
                 </div>
               </div>
@@ -211,7 +253,7 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
             </div>
             <div>
               <h2 className="text-lg font-semibold text-white">
-                Upload Media Stream or Portrait Image
+                Upload Media Stream, Portrait Image, or Audio Recording
               </h2>
               <p className="mt-1 text-sm text-slate-400">
                 Drag and drop your file here, or{' '}
@@ -222,7 +264,7 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
             </div>
             <div className="inline-flex items-center space-x-2 rounded-full border border-white/10 bg-white/5 px-3.5 py-1 font-mono text-[11px] text-slate-400 backdrop-blur-md">
               <span>Supported formats:</span>
-              <span className="font-semibold text-slate-200">JPG, PNG, WEBP, MP4, MOV, WEBM</span>
+              <span className="font-semibold text-slate-200">JPG, PNG, WEBP, MP4, MOV, MP3, WAV, OGG, M4A</span>
             </div>
           </div>
         )}
@@ -281,6 +323,8 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
                 >
                   {sample.mediaType === 'video' ? (
                     <FileVideo className="h-4 w-4" />
+                  ) : sample.mediaType === 'audio' ? (
+                    <FileAudio className="h-4 w-4" />
                   ) : (
                     <FileImage className="h-4 w-4" />
                   )}
@@ -312,4 +356,5 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
     </div>
   );
 };
+
 
