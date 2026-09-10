@@ -326,8 +326,8 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`DeepShield Deepfake Detection server running on http://0.0.0.0:${PORT}`);
+  app.listen(PORT, 'localhost', () => {
+    console.log(`DeepShield Deepfake Detection server running on http://localhost:${PORT}`);
   });
 }
 
