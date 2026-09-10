@@ -48,7 +48,7 @@ const upload = multer({
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json({ limit: '20mb' }));
   app.use(express.urlencoded({ extended: true, limit: '20mb' }));
@@ -326,7 +326,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, 'localhost', () => {
+  app.listen(PORT, '0.0.0.0', () => {
     console.log(`DeepShield Deepfake Detection server running on http://localhost:${PORT}`);
   });
 }
