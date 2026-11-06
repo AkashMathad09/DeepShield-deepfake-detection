@@ -1,24 +1,41 @@
 import React, { useState, useEffect } from 'react';
 import { Header, ActiveTab } from './components/Header';
-import { Hero } from './components/Hero';
+import { DashboardView } from './components/DashboardView';
 import { UploadZone } from './components/UploadZone';
 import { AnalysisProgress } from './components/AnalysisProgress';
 import { ResultCard } from './components/ResultCard';
 import { HeatmapViewer } from './components/HeatmapViewer';
 import { VideoAnalysisChart } from './components/VideoAnalysisChart';
-import { HowItWorks } from './components/HowItWorks';
-import { TechnologySection } from './components/TechnologySection';
-import { ApiDocs } from './components/ApiDocs';
-import { AnalysisResult, SampleMediaItem } from './types';
-import { AlertCircle, RefreshCw } from 'lucide-react';
+import { HistoryView } from './components/HistoryView';
+import { AnalysisResult, SampleMediaItem, HistoryRecord } from './types';
+import { AlertCircle, Shield, CheckCircle2 } from 'lucide-react';
+
+const STORAGE_KEY = 'deepshield_analysis_history_v5';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('studio');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisMediaType, setAnalysisMediaType] = useState<'image' | 'video' | 'audio'>('image');
+  const [analysisMediaType, setAnalysisMediaType] = useState<'image' | 'video'>('image');
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [samples, setSamples] = useState<SampleMediaItem[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistoryRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Persist history to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(history.slice(0, 50)));
+    } catch (e) {
+      console.warn('Could not persist history:', e);
+    }
+  }, [history]);
 
   // Load sample test fixtures from backend
   useEffect(() => {
@@ -29,13 +46,35 @@ export default function App() {
       })
       .then((data) => {
         if (data.success && data.samples) {
-          setSamples(data.samples);
+          // Filter out any non-image/video samples just in case
+          setSamples(data.samples.filter((s: SampleMediaItem) => s.mediaType === 'image' || s.mediaType === 'video'));
         }
       })
       .catch((err) => {
         console.warn('Could not load samples from API:', err);
       });
   }, []);
+
+  const addRecordToHistory = (result: AnalysisResult) => {
+    const record: HistoryRecord = {
+      id: result.id,
+      timestamp: result.timestamp,
+      filename: result.filename,
+      mediaType: result.mediaType,
+      prediction: result.prediction,
+      confidence: result.confidence,
+      fakeProbability: result.fakeProbability,
+      result,
+    };
+    setHistory((prev) => [record, ...prev.filter((h) => h.id !== record.id)]);
+  };
+
+  const handleClearHistory = () => {
+    setHistory([]);
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {}
+  };
 
   // Safe JSON response parsing helper
   const parseJsonResponse = async (response: globalThis.Response) => {
@@ -44,11 +83,10 @@ export default function App() {
     try {
       data = JSON.parse(text);
     } catch {
-      // If HTML was returned (e.g. 502/504 proxy page or unhandled route), provide a readable message
       const isHtml = text.trim().startsWith('<') || text.includes('<!DOCTYPE') || text.includes('<html>');
       if (isHtml) {
         throw new Error(
-          `Server returned an HTML status page (${response.status}). Please verify server connectivity and retry.`
+          `Server returned an HTML status page (${response.status}). Please check server status.`
         );
       }
       throw new Error(
@@ -64,10 +102,8 @@ export default function App() {
   const handleAnalyzeFile = async (file: File, sampleFrames: number) => {
     setErrorMsg(null);
     setIsAnalyzing(true);
-    const isAudio =
-      file.type.startsWith('audio/') || /\.(mp3|wav|ogg|aac|m4a|flac)$/i.test(file.name);
-    const isVideo = !isAudio && file.type.startsWith('video/');
-    setAnalysisMediaType(isAudio ? 'audio' : isVideo ? 'video' : 'image');
+    const isVideo = file.type.startsWith('video/') || /\.(mp4|mov|webm|avi)$/i.test(file.name);
+    setAnalysisMediaType(isVideo ? 'video' : 'image');
 
     const formData = new FormData();
     formData.append('media', file);
@@ -76,11 +112,7 @@ export default function App() {
     }
 
     try {
-      const endpoint = isAudio
-        ? '/api/detect/audio'
-        : isVideo
-        ? '/api/detect/video'
-        : '/api/detect/image';
+      const endpoint = isVideo ? '/api/detect/video' : '/api/detect/image';
       const response = await fetch(endpoint, {
         method: 'POST',
         body: formData,
@@ -92,7 +124,7 @@ export default function App() {
       }
 
       setAnalysisResult(data.result);
-      setActiveTab('studio');
+      addRecordToHistory(data.result);
     } catch (err: any) {
       console.error('Analysis error:', err);
       setErrorMsg(err.message || 'An unexpected error occurred during analysis.');
@@ -118,7 +150,7 @@ export default function App() {
       }
 
       setAnalysisResult(data.result);
-      setActiveTab('studio');
+      addRecordToHistory(data.result);
     } catch (err: any) {
       console.error('Sample analysis error:', err);
       setErrorMsg(err.message || 'Failed to analyze selected test fixture.');
@@ -130,137 +162,154 @@ export default function App() {
   const handleReset = () => {
     setAnalysisResult(null);
     setErrorMsg(null);
-    setActiveTab('studio');
+    setActiveTab('dashboard');
   };
 
   return (
-    <div className="relative min-h-screen bg-slate-950 text-slate-100 selection:bg-blue-500 selection:text-white flex flex-col font-sans overflow-x-hidden">
-      {/* Frosted Glass Background Ambient Glowing Orbs */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden -z-10">
-        <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-blue-600/10 rounded-full blur-[140px]"></div>
-        <div className="absolute bottom-1/4 right-1/4 w-[500px] h-[500px] bg-purple-600/10 rounded-full blur-[140px]"></div>
-        <div className="absolute top-2/3 left-1/3 w-[380px] h-[380px] bg-cyan-600/8 rounded-full blur-[120px]"></div>
-      </div>
-
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans antialiased">
       {/* Navigation Header */}
       <Header
         activeTab={activeTab}
-        onSelectTab={setActiveTab}
+        onSelectTab={(tab) => {
+          setActiveTab(tab);
+          if (tab === 'dashboard' || tab === 'image' || tab === 'video') {
+            // Keep analysis result if reviewing, or allow tab navigation
+          }
+        }}
         hasResult={!!analysisResult}
-        isVideoResult={analysisResult?.mediaType === 'video'}
+        historyCount={history.length}
       />
 
-      {/* Main Content Area */}
-      <main className="flex-1 relative z-10">
-        {/* Error Notification Toast */}
+      {/* Main Container */}
+      <main className="flex-1 py-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
+        {/* Error Notification */}
         {errorMsg && (
-          <div className="mx-auto mt-4 max-w-4xl px-4">
-            <div className="flex items-center justify-between rounded-2xl border border-rose-500/30 bg-rose-950/40 p-4 text-xs text-rose-200 shadow-xl backdrop-blur-xl">
-              <div className="flex items-center space-x-3">
-                <AlertCircle className="h-5 w-5 flex-shrink-0 text-rose-400" />
-                <span>{errorMsg}</span>
-              </div>
-              <button
-                onClick={() => setErrorMsg(null)}
-                className="font-bold text-rose-400 hover:text-white transition"
-              >
-                Dismiss
-              </button>
+          <div className="mb-6 rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs text-rose-800 shadow-xs flex items-center justify-between">
+            <div className="flex items-center space-x-2.5">
+              <AlertCircle className="h-4 w-4 text-rose-600 flex-shrink-0" />
+              <span>{errorMsg}</span>
             </div>
+            <button
+              onClick={() => setErrorMsg(null)}
+              className="font-bold text-rose-700 hover:text-rose-900 transition"
+            >
+              Dismiss
+            </button>
           </div>
         )}
 
-        {/* Tab 1: Detector Studio */}
-        {activeTab === 'studio' && (
-          <div>
-            {!analysisResult && !isAnalyzing && (
-              <Hero
-                onAnalyzeClick={() => {
-                  const uploadEl = document.getElementById('upload-section');
-                  uploadEl?.scrollIntoView({ behavior: 'smooth' });
+        {/* Loading Progress State */}
+        {isAnalyzing ? (
+          <AnalysisProgress mediaType={analysisMediaType} />
+        ) : analysisResult && (activeTab === 'image' || activeTab === 'video' || (activeTab === 'dashboard' && analysisResult)) ? (
+          /* Active Result Display */
+          <ResultCard
+            result={analysisResult}
+            onOpenHeatmap={() => setActiveTab('heatmap')}
+            onOpenVideoTimeline={() => setActiveTab('video')}
+            onReset={handleReset}
+          />
+        ) : (
+          /* Tab Specific Views */
+          <>
+            {/* Dashboard Tab */}
+            {activeTab === 'dashboard' && (
+              <DashboardView
+                history={history}
+                samples={samples}
+                onNavigateToImage={() => {
+                  setAnalysisResult(null);
+                  setActiveTab('image');
                 }}
-                onHowItWorksClick={() => setActiveTab('how-it-works')}
+                onNavigateToVideo={() => {
+                  setAnalysisResult(null);
+                  setActiveTab('video');
+                }}
+                onSelectSample={handleSelectSample}
+                onViewHistoryResult={(res) => {
+                  setAnalysisResult(res);
+                  setActiveTab('dashboard');
+                }}
+                onClearHistory={handleClearHistory}
+                isAnalyzing={isAnalyzing}
               />
             )}
 
-            <div id="upload-section" className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-              {isAnalyzing ? (
-                <AnalysisProgress mediaType={analysisMediaType} />
-              ) : analysisResult ? (
-                <ResultCard
-                  result={analysisResult}
-                  onOpenHeatmap={() => setActiveTab('heatmap')}
-                  onOpenVideoTimeline={() => setActiveTab('video')}
-                  onReset={handleReset}
-                />
-              ) : (
-                <div className="mx-auto max-w-4xl">
-                  <UploadZone
-                    onAnalyzeFile={handleAnalyzeFile}
-                    onSelectSample={handleSelectSample}
-                    samples={samples}
-                    isAnalyzing={isAnalyzing}
-                  />
+            {/* Image Detection Tab */}
+            {activeTab === 'image' && (
+              <div className="space-y-6 max-w-4xl mx-auto">
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <h1 className="text-xl font-bold text-slate-900">Image Deepfake Detection</h1>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Upload a high-resolution image to run independent neural classification and Error Level Analysis (ELA).
+                  </p>
                 </div>
-              )}
-            </div>
-          </div>
-        )}
+                <UploadZone
+                  onAnalyzeFile={handleAnalyzeFile}
+                  onSelectSample={handleSelectSample}
+                  samples={samples}
+                  isAnalyzing={isAnalyzing}
+                  defaultMediaType="image"
+                />
+              </div>
+            )}
 
-        {/* Tab 2: ELA & Heatmap Inspector */}
-        {activeTab === 'heatmap' && (
-          <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-            <HeatmapViewer
-              result={analysisResult}
-              onBackToStudio={() => setActiveTab('studio')}
-            />
-          </div>
-        )}
+            {/* Video Detection Tab */}
+            {activeTab === 'video' && (
+              <div className="space-y-6 max-w-4xl mx-auto">
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <h1 className="text-xl font-bold text-slate-900">Video Deepfake Detection</h1>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Upload an MP4, MOV, or WEBM video. Keyframes will be sampled via FFmpeg and evaluated for optical compression variance.
+                  </p>
+                </div>
+                <UploadZone
+                  onAnalyzeFile={handleAnalyzeFile}
+                  onSelectSample={handleSelectSample}
+                  samples={samples}
+                  isAnalyzing={isAnalyzing}
+                  defaultMediaType="video"
+                />
+              </div>
+            )}
 
-        {/* Tab 3: Video Timeline */}
-        {activeTab === 'video' && (
-          <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-            <VideoAnalysisChart
-              result={analysisResult}
-              onBackToStudio={() => setActiveTab('studio')}
-            />
-          </div>
-        )}
+            {/* History Tab */}
+            {activeTab === 'history' && (
+              <HistoryView
+                history={history}
+                onSelectResult={(res) => {
+                  setAnalysisResult(res);
+                  setActiveTab('dashboard');
+                }}
+                onClearHistory={handleClearHistory}
+                onNavigateToUpload={() => setActiveTab('image')}
+              />
+            )}
 
-        {/* Tab 4: How It Works */}
-        {activeTab === 'how-it-works' && (
-          <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-            <HowItWorks />
-          </div>
-        )}
-
-        {/* Tab 5: Technology & Specs */}
-        {activeTab === 'tech' && (
-          <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-            <TechnologySection />
-          </div>
-        )}
-
-        {/* Tab 6: API Docs */}
-        {activeTab === 'api' && (
-          <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-            <ApiDocs />
-          </div>
+            {/* Heatmap / Detailed Inspection Tab */}
+            {activeTab === 'heatmap' && (
+              <HeatmapViewer
+                result={analysisResult}
+                onBackToStudio={() => setActiveTab('dashboard')}
+              />
+            )}
+          </>
         )}
       </main>
 
-      {/* Frosted Glass Footer */}
-      <footer className="mt-auto border-t border-white/5 bg-slate-950/80 backdrop-blur-xl py-4 px-4 sm:px-8 text-[11px] text-slate-500 z-10">
+      {/* Clean Minimalist Light Footer */}
+      <footer className="mt-auto border-t border-slate-200 bg-white py-4 px-4 sm:px-8 text-xs text-slate-500">
         <div className="mx-auto max-w-7xl flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center space-x-3">
-            <span className="font-mono text-slate-400">SESSION_ID: 9X72-KJ9M-L003</span>
+          <div className="flex items-center space-x-2">
+            <span className="font-semibold text-slate-700">DeepShield</span>
             <span>•</span>
-            <span className="font-mono text-slate-400">LATENCY: 142ms</span>
+            <span>AI Forensic Verification Platform</span>
           </div>
-          <div className="flex items-center space-x-4 uppercase tracking-wider text-[10px]">
-            <span>ISO/IEC 27001 COMPLIANT</span>
+
+          <div className="flex items-center space-x-4 text-[11px] text-slate-500">
+            <span>Image & Video Verification</span>
             <span>•</span>
-            <span className="text-blue-400 font-bold">DEEPSHIELD FORENSICS v4.2 PRO</span>
+            <span>Google Gemini + PyTorch EfficientNet-B0 + ELA</span>
           </div>
         </div>
       </footer>

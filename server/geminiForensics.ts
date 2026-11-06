@@ -20,9 +20,10 @@ function getAIClient(): GoogleGenAI {
 }
 
 export interface NeuralForensicAnalysis {
+  status: 'SUCCESS' | 'NOT_CONFIGURED' | 'ERROR';
   prediction: MediaPrediction;
   confidence: number;
-  fakeProbability: number;
+  fakeProbability: number | null;
   manipulationType: string;
   summary: string;
   faces: DetectedFace[];
@@ -176,8 +177,16 @@ export async function analyzeImageWithAI(
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || apiKey.trim() === '') {
-    // If API key is not configured, run local heuristic forensic analysis
-    return runHeuristicForensics(imageBuffer, elaMeanDiff, laplacianVar);
+    return {
+      status: 'NOT_CONFIGURED',
+      prediction: 'UNCERTAIN',
+      confidence: 0,
+      fakeProbability: null,
+      manipulationType: 'Gemini Unconfigured',
+      summary: 'Gemini API key is not configured. Multimodal neural analysis is offline.',
+      faces: [],
+      metrics: generateStandardMetrics(false, elaMeanDiff),
+    };
   }
 
   try {
@@ -207,7 +216,7 @@ Carefully inspect:
 5. Directional lighting, shadows, and color temperature consistency across the face vs surrounding torso/background.
 6. Error Level Analysis context: Measured ELA compression difference is ${elaMeanDiff}, Laplacian sharpness variance is ${laplacianVar}.
 
-Locate any faces in the image and provide normalized bounding boxes [ymin, xmin, ymax, xmax] on a 0 to 1000 scale.
+Locate any faces in the image and provide tightly bounded boxes [ymin, xmin, ymax, xmax] on a 0 to 1000 scale covering the visible face from forehead to chin and cheek to cheek. If no human faces are present, return an empty array for faces.
 Determine whether the media is 'REAL', 'DEEPFAKE', or 'UNCERTAIN', with a calibrated confidence percentage.`;
 
     const rawText = await callGeminiWithFallback(ai, base64Data, prompt);
@@ -268,6 +277,7 @@ Determine whether the media is 'REAL', 'DEEPFAKE', or 'UNCERTAIN', with a calibr
     }));
 
     return {
+      status: 'SUCCESS',
       prediction,
       confidence: parseFloat((parsed.confidence ?? 92.5).toFixed(1)),
       fakeProbability: parseFloat((parsed.fakeProbability ?? (prediction === 'DEEPFAKE' ? 0.92 : 0.08)).toFixed(2)),
@@ -276,64 +286,19 @@ Determine whether the media is 'REAL', 'DEEPFAKE', or 'UNCERTAIN', with a calibr
       faces,
       metrics: metrics.length > 0 ? metrics : generateStandardMetrics(prediction === 'DEEPFAKE', elaMeanDiff),
     };
-  } catch (err) {
-    console.warn('AI forensic inference fallback triggered:', err);
-    return runHeuristicForensics(imageBuffer, elaMeanDiff, laplacianVar);
+  } catch (err: any) {
+    console.warn('AI forensic inference error:', err);
+    return {
+      status: 'ERROR',
+      prediction: 'UNCERTAIN',
+      confidence: 0,
+      fakeProbability: null,
+      manipulationType: 'API Error',
+      summary: `Gemini API call failed: ${err.message || 'Service unavailable'}`,
+      faces: [],
+      metrics: generateStandardMetrics(false, elaMeanDiff),
+    };
   }
-}
-
-/**
- * Robust computer vision heuristic fallback when AI model is offline or cold.
- */
-function runHeuristicForensics(
-  _buffer: Buffer,
-  elaMeanDiff: number,
-  laplacianVar: number
-): NeuralForensicAnalysis {
-  // High ELA difference (> 16.5) or extreme blur variance anomaly suggests compression/splicing anomaly
-  const isSuspiciousELA = elaMeanDiff > 16.5;
-  const isHighLaplacianNoise = laplacianVar < 25 || laplacianVar > 450;
-  
-  const isFake = isSuspiciousELA || isHighLaplacianNoise;
-  const confidence = isFake ? 86.4 : 89.2;
-  const fakeProbability = isFake ? 0.88 : 0.12;
-
-  const defaultFace: DetectedFace = {
-    id: 1,
-    box: { ymin: 150, xmin: 250, ymax: 750, xmax: 750 },
-    fakeProbability,
-    confidence,
-    label: isFake ? 'DEEPFAKE' : 'REAL',
-    manipulationType: isFake ? 'Spatial Compression Inconsistency (ELA Detected)' : 'Authentic Spatial Profile',
-    notes: isFake
-      ? [
-          'High Error Level Analysis (ELA) variance across facial boundary region.',
-          'Discontinuous high-frequency pixel noise between face patch and background.',
-        ]
-      : [
-          'Natural biometric pixel gradient observed.',
-          'Uniform compression quantization throughout image planes.',
-        ],
-    landmarks: {
-      eyeSymmetryScore: isFake ? 48 : 94,
-      boundarySeamArtifact: isFake ? 78 : 14,
-      skinTextureNaturalness: isFake ? 55 : 91,
-      lightingConsistency: isFake ? 62 : 93,
-      compressionAnomaly: Math.min(100, Math.round(elaMeanDiff * 4.5)),
-    },
-  };
-
-  return {
-    prediction: isFake ? 'DEEPFAKE' : 'REAL',
-    confidence,
-    fakeProbability,
-    manipulationType: isFake ? 'Face Swap / Spliced Media (Computer Vision ELA)' : 'Authentic Unaltered Media',
-    summary: isFake
-      ? `Computer vision analysis detected significant spatial-frequency anomalies (ELA mean difference: ${elaMeanDiff}, Laplacian variance: ${laplacianVar}).`
-      : `Forensic inspection confirmed consistent pixel quantization (ELA difference: ${elaMeanDiff}) and natural facial gradient.`,
-    faces: [defaultFace],
-    metrics: generateStandardMetrics(isFake, elaMeanDiff),
-  };
 }
 
 function generateStandardMetrics(isFake: boolean, elaDiff: number): ForensicMetric[] {

@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
 import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  ReferenceLine,
-} from 'recharts';
-import { Video, AlertTriangle, ShieldCheck, Layers, Flame } from 'lucide-react';
+  Video as VideoIcon,
+  AlertTriangle,
+  ShieldCheck,
+  Layers,
+  Flame,
+  Info,
+  Clock,
+  CheckCircle2,
+  Sliders,
+  Maximize2,
+} from 'lucide-react';
 import { AnalysisResult, FramePrediction } from '../types';
 
 interface VideoAnalysisChartProps {
@@ -23,306 +24,296 @@ export const VideoAnalysisChart: React.FC<VideoAnalysisChartProps> = ({
 }) => {
   const [selectedFrame, setSelectedFrame] = useState<FramePrediction | null>(null);
 
-  if (!result || result.mediaType !== 'video' || !result.videoTimeline) {
+  if (!result || result.mediaType !== 'video') {
     return (
-      <div className="mx-auto max-w-4xl rounded-3xl border border-white/10 bg-white/5 p-12 text-center backdrop-blur-xl shadow-2xl">
-        <Video className="mx-auto h-12 w-12 text-slate-500" />
-        <h2 className="mt-4 text-lg font-bold text-slate-100">No Video Analysis Available</h2>
-        <p className="mt-2 text-sm text-slate-400">
-          Upload an MP4, MOV, or WEBM video in the Detector Studio to inspect multi-frame temporal consistency and frame risk curves.
+      <div className="mx-auto max-w-2xl rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm">
+        <VideoIcon className="mx-auto h-12 w-12 text-slate-400" />
+        <h2 className="mt-4 text-lg font-bold text-slate-900">No Video Analysis Available</h2>
+        <p className="mt-2 text-sm text-slate-500 max-w-md mx-auto">
+          Upload an MP4, MOV, or WEBM video in the Video Detection tab to inspect keyframe extraction, ELA candidate scores, and forensic metrics.
         </p>
         <button
           onClick={onBackToStudio}
-          className="mt-6 rounded-xl bg-blue-600 px-6 py-2.5 text-xs font-semibold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-500"
+          className="mt-6 rounded-lg bg-blue-600 px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 transition"
         >
-          Go to Detector Studio
+          Go to Video Detection
         </button>
       </div>
     );
   }
 
   const summary = result.videoSummary;
-  const timeline = result.videoTimeline;
+  const timeline = result.videoTimeline || [];
+  const candidateFrames = summary?.candidateFrames || [];
   const activeFrame = selectedFrame || timeline[0];
 
-  const chartData = timeline.map((f) => ({
-    frame: `F#${f.frameIndex}`,
-    time: `${f.timestampSeconds}s`,
-    probability: Math.round(f.fakeProbability * 100),
-    confidence: f.confidence,
-    status: f.status,
-    anomaly: f.keyAnomaly,
-    raw: f,
-  }));
+  const isFake = result.prediction === 'DEEPFAKE';
+  const isReal = result.prediction === 'REAL';
 
   return (
-    <div className="space-y-6">
-      {/* Top Banner with Video Metrics Summary */}
-      <div className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur-xl shadow-xl">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-white/10 pb-4">
-          <div>
-            <div className="flex items-center space-x-2">
-              <span className="h-2 w-2 rounded-full bg-indigo-400"></span>
-              <span className="font-mono text-xs uppercase tracking-wider text-slate-400">
-                MULTI-FRAME TEMPORAL FORENSIC MATRIX
+    <div className="space-y-8">
+      {/* Top Banner: Video Metrics & Final Prediction */}
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6 border-b border-slate-100 pb-5">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-xs uppercase tracking-wider text-slate-500 font-semibold">
+                Video Keyframe Forensics
               </span>
+              <span className="text-slate-300">•</span>
+              <span className="font-mono text-xs text-blue-600 font-bold">{result.id}</span>
             </div>
-            <h1 className="mt-1 text-2xl font-bold text-slate-100">
-              Video Frame-by-Frame Anomaly Timeline
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">
+              Video Detection & Keyframe Analysis
             </h1>
-            <p className="mt-1 text-xs text-slate-400">
-              Sampled at {summary?.fps || 30} FPS • Duration: {summary?.totalDurationSeconds}s •{' '}
-              {summary?.framesAnalyzedCount} Keyframes Processed
+            <p className="text-xs text-slate-500">
+              Analyzed with FFmpeg Keyframe Extractor & Optical Error Level Analysis
             </p>
           </div>
 
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center gap-2.5">
             <span
-              className={`rounded-full px-3 py-1 font-mono text-xs font-bold border ${
-                result.prediction === 'DEEPFAKE'
-                  ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
-                  : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-bold border ${
+                isFake
+                  ? 'bg-rose-50 text-rose-700 border-rose-200'
+                  : isReal
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  : 'bg-amber-50 text-amber-700 border-amber-200'
               }`}
             >
-              Overall: {result.prediction} ({result.confidence}%)
+              <span>Final Verdict:</span>
+              <span>{result.prediction}</span>
+              <span className="text-xs font-mono font-normal">({result.confidence.toFixed(1)}% conf)</span>
             </span>
           </div>
         </div>
 
-        {/* 4-Stat Metric Strip */}
-        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-md">
-            <div className="flex items-center space-x-1.5 text-slate-400 text-xs">
-              <Layers className="h-4 w-4 text-blue-400" />
-              <span>Frames Sampled</span>
-            </div>
-            <p className="mt-1 text-xl font-bold text-slate-100">
-              {summary?.framesAnalyzedCount} / {summary?.totalVideoFrames}
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-md">
-            <div className="flex items-center space-x-1.5 text-slate-400 text-xs">
-              <Flame className="h-4 w-4 text-rose-400" />
-              <span>Avg Fake Probability</span>
-            </div>
-            <p className="mt-1 text-xl font-bold text-slate-100">
-              {((summary?.averageFakeProbability ?? 0) * 100).toFixed(1)}%
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-md">
-            <div className="flex items-center space-x-1.5 text-slate-400 text-xs">
-              <AlertTriangle className="h-4 w-4 text-rose-400" />
-              <span>Highest-Risk Frame</span>
-            </div>
-            <p className="mt-1 text-lg font-bold text-rose-400 truncate">
-              Frame #{summary?.maxRiskFrame.frameIndex} (
-              {((summary?.maxRiskFrame.fakeProbability ?? 0) * 100).toFixed(0)}%)
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-md">
-            <div className="flex items-center space-x-1.5 text-slate-400 text-xs">
-              <ShieldCheck className="h-4 w-4 text-emerald-400" />
-              <span>Temporal Consistency</span>
-            </div>
-            <p className="mt-1 text-xl font-bold text-slate-100">
-              {summary?.temporalConsistencyScore}%
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Interactive Waveform & Frame Viewer */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        {/* Left Column: Recharts Line/Area Chart (7 cols) */}
-        <div className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur-xl shadow-xl lg:col-span-7 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-slate-200 flex items-center space-x-2">
-              <span>Frame Manipulation Probability Curve</span>
-            </h2>
-            <span className="text-[11px] font-mono text-slate-400">
-              Threshold: 50% Fake Line
+        {/* 4 Essential Video Stats */}
+        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+            <span className="text-xs font-semibold text-slate-500 block">Video Duration</span>
+            <span className="mt-1 text-xl font-bold font-mono text-slate-900 block">
+              {summary?.totalDurationSeconds || 0}s
+            </span>
+            <span className="text-[11px] text-slate-400">
+              {summary?.fps || 30} FPS • {summary?.resolution || 'Original'}
             </span>
           </div>
 
-          {/* Chart Container */}
-          <div className="h-72 w-full pt-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart
-                data={chartData}
-                onClick={(e: any) => {
-                  if (e && e.activePayload && e.activePayload[0]?.payload?.raw) {
-                    setSelectedFrame(e.activePayload[0].payload.raw);
-                  }
-                }}
-              >
-                <defs>
-                  <linearGradient id="probGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.8} />
-                    <stop offset="60%" stopColor="#3b82f6" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff" strokeOpacity={0.06} />
-                <XAxis dataKey="frame" stroke="#94a3b8" fontSize={11} />
-                <YAxis stroke="#94a3b8" fontSize={11} domain={[0, 100]} unit="%" />
-                <Tooltip
-                  content={({ active, payload }) => {
-                    if (active && payload && payload.length) {
-                      const data = payload[0].payload;
-                      return (
-                        <div className="rounded-2xl border border-white/10 bg-slate-950/90 backdrop-blur-md p-3 text-xs shadow-xl">
-                          <p className="font-mono font-bold text-slate-200">
-                            {data.frame} ({data.time})
-                          </p>
-                          <p
-                            className={`mt-1 font-bold ${
-                              data.probability > 50 ? 'text-rose-400' : 'text-emerald-400'
-                            }`}
-                          >
-                            Fake Probability: {data.probability}%
-                          </p>
-                          {data.anomaly && (
-                            <p className="mt-1 text-[10px] text-amber-300">
-                              Anomaly: {data.anomaly}
-                            </p>
-                          )}
-                        </div>
-                      );
-                    }
-                    return null;
-                  }}
-                />
-                <ReferenceLine y={50} stroke="#f59e0b" strokeDasharray="4 4" label={{ value: '50% Threshold', fill: '#f59e0b', fontSize: 10 }} />
-                <Area
-                  type="monotone"
-                  dataKey="probability"
-                  stroke="#f43f5e"
-                  strokeWidth={2.5}
-                  fillOpacity={1}
-                  fill="url(#probGradient)"
-                  activeDot={{ r: 6, fill: '#38bdf8' }}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+            <span className="text-xs font-semibold text-slate-500 block">Extracted Frames</span>
+            <span className="mt-1 text-xl font-bold font-mono text-slate-900 block">
+              {summary?.totalVideoFrames || 0}
+            </span>
+            <span className="text-[11px] text-slate-400">Total stream frames</span>
           </div>
 
-          <p className="text-[11px] text-slate-400 text-center">
-            Click on any frame node in the graph or the strip below to inspect frame details.
-          </p>
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+            <span className="text-xs font-semibold text-slate-500 block">Sampled Keyframes</span>
+            <span className="mt-1 text-xl font-bold font-mono text-slate-900 block">
+              {summary?.framesAnalyzedCount || timeline.length}
+            </span>
+            <span className="text-[11px] text-slate-400">Evaluated candidates</span>
+          </div>
 
-          {/* Keyframe Scrubber Strip */}
-          <div className="space-y-2 pt-2">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+            <span className="text-xs font-semibold text-slate-500 block">Representative Keyframe</span>
+            <span className="mt-1 text-xl font-bold font-mono text-blue-600 block">
+              Frame #{summary?.representativeFrameIndex || 1}
+            </span>
+            <span className="text-[11px] text-slate-400">Peak ELA deviation</span>
+          </div>
+        </div>
+
+        {/* Summary Narrative */}
+        <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-700 leading-relaxed">
+          <span className="font-bold text-slate-900">Analysis Summary: </span>
+          {result.summaryText}
+        </div>
+      </section>
+
+      {/* Representative Keyframe Selection Explanation */}
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
+        <div className="flex items-center space-x-2 pb-2 border-b border-slate-100">
+          <Info className="h-5 w-5 text-blue-600" />
+          <h2 className="text-base font-bold text-slate-900">
+            How the Representative Frame was Selected
+          </h2>
+        </div>
+
+        <p className="text-xs text-slate-600 leading-relaxed">
+          Rather than relying on arbitrary single-frame screenshots, DeepShield samples candidate keyframes across the video stream using FFmpeg. Each candidate is tested for physical compression discrepancies using Error Level Analysis (ELA). The frame with the highest ELA mean difference is isolated as the representative frame and subjected to full multimodal neural inspection.
+        </p>
+
+        {summary?.selectionMethodExplanation && (
+          <div className="rounded-lg bg-blue-50/60 border border-blue-200 p-3 text-xs text-blue-900">
+            <strong>Selection Log: </strong> {summary.selectionMethodExplanation}
+          </div>
+        )}
+
+        {/* Candidate Frames ELA Comparison Table */}
+        {candidateFrames.length > 0 && (
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 text-slate-500 font-semibold">
+                  <th className="py-2.5">Candidate Frame</th>
+                  <th className="py-2.5">Timestamp</th>
+                  <th className="py-2.5">ELA Mean Difference</th>
+                  <th className="py-2.5">Laplacian Blur Variance</th>
+                  <th className="py-2.5">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {candidateFrames.map((c) => (
+                  <tr
+                    key={c.index}
+                    className={c.isRepresentative ? 'bg-blue-50/70 font-semibold' : ''}
+                  >
+                    <td className="py-2.5 font-mono text-slate-900">Frame #{c.index}</td>
+                    <td className="py-2.5 text-slate-600">{c.timestampSeconds}s</td>
+                    <td className="py-2.5 font-mono text-slate-800">{c.elaMeanDifference.toFixed(1)}</td>
+                    <td className="py-2.5 font-mono text-slate-800">{c.laplacianVariance.toFixed(1)}</td>
+                    <td className="py-2.5">
+                      {c.isRepresentative ? (
+                        <span className="rounded bg-blue-600 text-white px-2 py-0.5 text-[10px] font-bold">
+                          Selected Representative
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 text-[11px]">Evaluated</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* Frame Scrubber & Inspection */}
+      {timeline.length > 0 && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">
               Sampled Keyframe Scrubber ({timeline.length} Frames)
             </h2>
-            <div className="flex space-x-2.5 overflow-x-auto pb-2">
-              {timeline.map((f) => {
-                const isSelected = activeFrame.frameIndex === f.frameIndex;
-                const isFrameFake = f.fakeProbability > 0.5;
-
-                return (
-                  <button
-                    key={f.frameIndex}
-                    onClick={() => setSelectedFrame(f)}
-                    className={`relative flex-shrink-0 w-20 rounded-xl border p-1 text-left transition backdrop-blur-md ${
-                      isSelected
-                        ? 'border-blue-400 bg-blue-500/20 ring-2 ring-blue-500/40'
-                        : 'border-white/10 bg-white/5 hover:border-white/20'
-                    }`}
-                  >
-                    <div className="h-12 w-full overflow-hidden rounded-lg bg-slate-900">
-                      <img
-                        src={f.thumbnailBase64 || result.previewUrl}
-                        alt={`Frame ${f.frameIndex}`}
-                        className="h-full w-full object-cover"
-                      />
-                    </div>
-                    <div className="mt-1 flex items-center justify-between text-[10px] font-mono">
-                      <span className="text-slate-400">#{f.frameIndex}</span>
-                      <span
-                        className={`font-bold ${
-                          isFrameFake ? 'text-rose-400' : 'text-emerald-400'
-                        }`}
-                      >
-                        {(f.fakeProbability * 100).toFixed(0)}%
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+            <p className="text-xs text-slate-500">
+              Optical anomaly variance recorded across extracted keyframes.
+            </p>
           </div>
-        </div>
 
-        {/* Right Column: Selected Frame Deep Dive Inspector (5 cols) */}
-        <div className="space-y-4 lg:col-span-5">
-          <div className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur-xl shadow-xl space-y-4">
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
-              <div>
-                <h2 className="text-sm font-bold text-slate-200">
-                  Keyframe #{activeFrame.frameIndex} Inspection
-                </h2>
-                <p className="text-xs text-slate-400">Timestamp: {activeFrame.timestampSeconds}s</p>
-              </div>
-              <span
-                className={`rounded-full px-2.5 py-0.5 font-mono text-xs font-bold border ${
-                  activeFrame.fakeProbability > 0.5
-                    ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
-                    : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-                }`}
-              >
-                {activeFrame.status}
-              </span>
-            </div>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Scrubber Cards */}
+            <div className="lg:col-span-7 space-y-3">
+              <div className="flex gap-2.5 overflow-x-auto pb-3">
+                {timeline.map((f) => {
+                  const isSelected = activeFrame?.frameIndex === f.frameIndex;
+                  const isFrameFake = f.fakeProbability > 0.5;
 
-            {/* Frame Thumbnail Preview */}
-            <div className="relative mx-auto max-h-56 overflow-hidden rounded-2xl border border-white/10 bg-slate-950/80">
-              <img
-                src={activeFrame.thumbnailBase64 || result.previewUrl}
-                alt={`Keyframe ${activeFrame.frameIndex}`}
-                className="max-h-56 w-full object-contain"
-              />
-            </div>
+                  return (
+                    <button
+                      key={f.frameIndex}
+                      onClick={() => setSelectedFrame(f)}
+                      className={`flex-shrink-0 w-24 rounded-xl border p-1.5 text-left transition ${
+                        isSelected
+                          ? 'border-blue-600 bg-blue-50/50 ring-2 ring-blue-600/20'
+                          : 'border-slate-200 bg-white hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="h-14 w-full overflow-hidden rounded-lg bg-slate-900">
+                        <img
+                          src={f.thumbnailBase64 || result.previewUrl}
+                          alt={`Frame ${f.frameIndex}`}
+                          className="h-full w-full object-cover"
+                        />
+                      </div>
+                      <div className="mt-1 flex items-center justify-between text-[11px] font-mono">
+                        <span className="text-slate-500">#{f.frameIndex}</span>
+                        <span
+                          className={`font-bold ${
+                            isFrameFake ? 'text-rose-600' : 'text-emerald-600'
+                          }`}
+                        >
+                          {(f.fakeProbability * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
 
-            {/* Metrics for this Frame */}
-            <div className="space-y-2 rounded-2xl border border-white/5 bg-white/5 p-4 text-xs font-mono backdrop-blur-md">
-              <div className="flex justify-between py-1 border-b border-white/5">
-                <span className="text-slate-400">Frame Fake Probability:</span>
-                <span
-                  className={`font-bold ${
-                    activeFrame.fakeProbability > 0.5 ? 'text-rose-400' : 'text-emerald-400'
-                  }`}
-                >
-                  {(activeFrame.fakeProbability * 100).toFixed(1)}%
-                </span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-white/5">
-                <span className="text-slate-400">Biometric Faces Isolated:</span>
-                <span className="text-slate-200">{activeFrame.facesDetected} Face</span>
-              </div>
-              <div className="flex justify-between py-1">
-                <span className="text-slate-400">Model Confidence:</span>
-                <span className="text-blue-400">{activeFrame.confidence.toFixed(1)}%</span>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-500">
+                <strong>Model Note:</strong> Frame probabilities reflect localized optical compression variance across sampled frames. DeepShield does not claim an independent temporal sequential neural model is deployed for video frames; rather, frames are extracted via FFmpeg and inspected with optical ELA and multimodal vision.
               </div>
             </div>
 
-            {/* Anomaly Callout if flagged */}
-            {activeFrame.keyAnomaly && (
-              <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-300 flex items-start space-x-2 backdrop-blur-md">
-                <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-                <div>
-                  <span className="font-semibold">Detected Temporal Artifact: </span>
-                  {activeFrame.keyAnomaly}
+            {/* Selected Keyframe Detail */}
+            {activeFrame && (
+              <div className="lg:col-span-5 rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                  <span className="font-bold text-slate-900 text-xs">
+                    Frame #{activeFrame.frameIndex} Details
+                  </span>
+                  <span className="font-mono text-xs text-slate-500">
+                    Timestamp: {activeFrame.timestampSeconds}s
+                  </span>
                 </div>
+
+                <div className="relative mx-auto max-h-56 overflow-hidden rounded-lg border border-slate-200 bg-slate-900 flex items-center justify-center">
+                  <img
+                    src={activeFrame.thumbnailBase64 || result.previewUrl}
+                    alt={`Frame ${activeFrame.frameIndex}`}
+                    className="max-h-52 w-full object-contain"
+                  />
+                </div>
+
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex justify-between py-1 border-b border-slate-200/60">
+                    <span className="text-slate-500">Status:</span>
+                    <span
+                      className={`font-semibold ${
+                        activeFrame.fakeProbability > 0.5 ? 'text-rose-700' : 'text-emerald-700'
+                      }`}
+                    >
+                      {activeFrame.status}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-200/60">
+                    <span className="text-slate-500">Fake Probability:</span>
+                    <span className="font-mono font-bold text-slate-900">
+                      {(activeFrame.fakeProbability * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-slate-500">Faces Detected:</span>
+                    <span className="font-mono font-semibold text-slate-800">
+                      {activeFrame.facesDetected}
+                    </span>
+                  </div>
+                </div>
+
+                {activeFrame.keyAnomaly && (
+                  <div className="rounded-lg bg-amber-50 border border-amber-200 p-2.5 text-xs text-amber-800 flex items-start gap-1.5">
+                    <AlertTriangle className="h-4 w-4 flex-shrink-0 text-amber-600 mt-0.5" />
+                    <span>{activeFrame.keyAnomaly}</span>
+                  </div>
+                )}
               </div>
             )}
           </div>
-        </div>
+        </section>
+      )}
+
+      {/* Return Button */}
+      <div className="text-center">
+        <button
+          onClick={onBackToStudio}
+          className="text-xs font-semibold text-blue-600 hover:text-blue-800 transition"
+        >
+          ← Return to Dashboard
+        </button>
       </div>
     </div>
   );
 };
-

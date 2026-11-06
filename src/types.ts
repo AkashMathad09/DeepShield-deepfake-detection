@@ -49,6 +49,14 @@ export interface FramePrediction {
   thumbnailBase64?: string;
 }
 
+export interface VideoCandidateFrame {
+  index: number;
+  timestampSeconds: number;
+  elaMeanDifference: number;
+  laplacianVariance: number;
+  isRepresentative: boolean;
+}
+
 export interface VideoAnalysisSummary {
   totalDurationSeconds: number;
   fps: number;
@@ -69,22 +77,9 @@ export interface VideoAnalysisSummary {
   };
   temporalConsistencyScore: number; // 0..100
   jitterIndex: number; // 0..100
-}
-
-export interface AudioForensicDetails {
-  durationSeconds: number;
-  sampleRate: number;
-  channels: number;
-  format: string;
-  voiceSynthesisProbability: number; // 0..100
-  vocalTractNaturalness: number; // 0..100 (100 = completely natural)
-  backgroundNoiseContinuity: number; // 0..100
-  breathingAcousticScore: number; // 0..100 (100 = natural biological breathing)
-  formantDispersionScore: number; // 0..100
-  pitchProsodyNaturalness: number; // 0..100
-  neuralVocoderArtifacts: number; // 0..100 (higher = more robotic artifacts)
-  spectrogramUrl?: string;
-  waveformUrl?: string;
+  candidateFrames?: VideoCandidateFrame[];
+  representativeFrameIndex?: number;
+  selectionMethodExplanation?: string;
 }
 
 export interface ModelMetadata {
@@ -96,12 +91,41 @@ export interface ModelMetadata {
   executionTimeMs: number;
 }
 
+export interface EfficientNetResult {
+  model: string;
+  configured: boolean;
+  status: 'SUCCESS' | 'NOT_CONFIGURED' | 'OFFLINE' | 'ERROR';
+  prediction: MediaPrediction;
+  confidence: number;
+  realProbability?: number | null;
+  fakeProbability: number | null;
+  executionTimeMs: number;
+  weightsPath?: string | null;
+  message: string;
+  facesDetected?: number;
+  faces?: Array<{
+    id: number;
+    box: BoundingBox;
+  }>;
+}
+
+export interface GeminiResultSummary {
+  model: string;
+  status?: 'SUCCESS' | 'NOT_CONFIGURED' | 'OFFLINE' | 'ERROR';
+  prediction: MediaPrediction;
+  confidence: number;
+  fakeProbability: number | null;
+  summary: string;
+  manipulationType: string;
+  executionTimeMs: number;
+}
+
 export interface AnalysisResult {
   id: string;
   timestamp: string;
   filename: string;
   fileSize: number;
-  mediaType: 'image' | 'video' | 'audio';
+  mediaType: 'image' | 'video';
   mimeType: string;
   previewUrl: string;
   prediction: MediaPrediction;
@@ -114,11 +138,10 @@ export interface AnalysisResult {
   faces: DetectedFace[];
   metrics: ForensicMetric[];
   elaHeatmapUrl?: string;
-  gradCamHeatmapUrl?: string;
+  gradCamHeatmapUrl?: string; // Radial-gradient anomaly overlay
   frequencySpectrumUrl?: string;
   videoTimeline?: FramePrediction[];
   videoSummary?: VideoAnalysisSummary;
-  audioSummary?: AudioForensicDetails;
   modelInfo: ModelMetadata;
   technicalDetails: {
     elaMeanDifference: number;
@@ -126,15 +149,29 @@ export interface AnalysisResult {
     spectralHighFreqEnergy: number;
     colorChannelInconsistency: number;
   };
+  // Independent model outputs
+  geminiResult?: GeminiResultSummary;
+  efficientNetResult?: EfficientNetResult;
 }
 
 export interface SampleMediaItem {
   id: string;
   title: string;
-  mediaType: 'image' | 'video' | 'audio';
+  mediaType: 'image' | 'video';
   thumbnailUrl: string;
   fileUrl: string;
   expectedLabel: MediaPrediction;
   description: string;
   manipulationDetails: string;
+}
+
+export interface HistoryRecord {
+  id: string;
+  timestamp: string;
+  filename: string;
+  mediaType: 'image' | 'video';
+  prediction: MediaPrediction;
+  confidence: number;
+  fakeProbability: number;
+  result: AnalysisResult;
 }

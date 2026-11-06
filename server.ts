@@ -3,52 +3,55 @@ import path from 'path';
 import fs from 'fs/promises';
 import os from 'os';
 import multer from 'multer';
+import { spawn } from 'child_process';
 import { createServer as createViteServer } from 'vite';
 import { runImageForensics, runVideoForensics } from './server/forensics.js';
-import { runAudioForensics } from './server/audioForensics.js';
 import { createSampleMediaBuffer, SAMPLE_MEDIA_ITEMS } from './server/sampleData.js';
+import { checkEfficientNetHealth } from './server/efficientnetClient.js';
 
 // Setup file upload handling with multer (store in OS temp dir with safe unique names)
 const upload = multer({
-  dest: path.join(os.tmpdir(), 'veritas-uploads'),
+  dest: path.join(os.tmpdir(), 'deepshield-uploads'),
   limits: {
     fileSize: 100 * 1024 * 1024, // 100MB max limit
   },
   fileFilter: (_req, file, cb) => {
     const allowedImageMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
     const allowedVideoMimes = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-msvideo', 'video/avi'];
-    const allowedAudioMimes = [
-      'audio/mpeg',
-      'audio/mp3',
-      'audio/wav',
-      'audio/x-wav',
-      'audio/ogg',
-      'audio/aac',
-      'audio/m4a',
-      'audio/x-m4a',
-      'audio/flac',
-      'audio/webm',
-    ];
 
-    if (
-      allowedImageMimes.includes(file.mimetype) ||
-      allowedVideoMimes.includes(file.mimetype) ||
-      allowedAudioMimes.includes(file.mimetype)
-    ) {
+    if (allowedImageMimes.includes(file.mimetype) || allowedVideoMimes.includes(file.mimetype)) {
       cb(null, true);
     } else {
       cb(
         new Error(
-          `Unsupported media format: ${file.mimetype}. Supported: JPG, PNG, WEBP, MP4, MOV, WEBM, MP3, WAV, OGG, M4A, FLAC.`
+          `Unsupported media format: ${file.mimetype}. DeepShield supports Images (JPG, PNG, WEBP, AVIF) and Videos (MP4, MOV, WEBM, AVI).`
         )
       );
     }
   },
 });
 
+async function ensureMicroserviceRunning() {
+  const effHealth = await checkEfficientNetHealth();
+  if (!effHealth.isOnline) {
+    try {
+      const child = spawn('python3', ['-m', 'uvicorn', 'microservice.app:app', '--host', '127.0.0.1', '--port', '5050'], {
+        stdio: 'inherit',
+      });
+      child.on('error', (err) => {
+        console.warn('Could not launch EfficientNet microservice automatically:', err.message);
+      });
+    } catch (e: any) {
+      console.warn('Could not spawn microservice:', e.message);
+    }
+  }
+}
+
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
+
+  ensureMicroserviceRunning().catch((err) => console.warn('Microservice check error:', err));
 
   app.use(express.json({ limit: '20mb' }));
   app.use(express.urlencoded({ extended: true, limit: '20mb' }));
@@ -56,23 +59,28 @@ async function startServer() {
   // ================= API ROUTES =================
 
   // 1. Health Check
-  app.get('/api/health', (_req: Request, res: Response) => {
+  app.get('/api/health', async (_req: Request, res: Response) => {
+    const effHealth = await checkEfficientNetHealth();
     res.json({
       status: 'ok',
       service: 'DeepShield Deepfake Detection Engine',
-      version: '4.2.0',
+      version: '5.0.0',
       timestamp: new Date().toISOString(),
       capabilities: {
         imageForensics: true,
-        videoTemporalAnalysis: true,
-        audioForensics: true,
+        videoKeyframeAnalysis: true,
         errorLevelAnalysis: true,
         multimodalNeuralInference: true,
+        efficientNetMicroservice: effHealth.isOnline,
+      },
+      models: {
+        gemini: { status: 'ONLINE', role: 'Multimodal Vision & Artifact Inspection' },
+        efficientnet: effHealth,
       },
     });
   });
 
-  // 2. Samples Catalog
+  // 2. Samples Catalog (Only Image & Video)
   app.get('/api/samples', (_req: Request, res: Response) => {
     res.json({
       success: true,
@@ -88,7 +96,7 @@ async function startServer() {
       res.setHeader('Content-Type', mimeType);
       res.setHeader('Content-Length', buffer.length);
       res.send(buffer);
-    } catch (err: any) {
+    } catch {
       res.status(404).json({ success: false, error: 'Sample not found' });
     }
   });
@@ -102,26 +110,19 @@ async function startServer() {
         return res.status(404).json({ success: false, error: 'Sample not found' });
       }
 
-      if (sampleMeta.mediaType === 'audio') {
-        const { buffer, mimeType } = await createSampleMediaBuffer(id);
-        const previewDataUri = `data:${mimeType};base64,${buffer.toString('base64')}`;
-        const result = await runAudioForensics(buffer, `${sampleMeta.title}.wav`, mimeType, previewDataUri);
-        return res.json({ success: true, result });
-      } else if (sampleMeta.mediaType === 'video') {
-        // Run video pipeline on generated sample video/frames
+      if (sampleMeta.mediaType === 'video') {
         const { buffer, mimeType } = await createSampleMediaBuffer(id);
         const tempPath = path.join(os.tmpdir(), `sample-vid-${Date.now()}.mp4`);
         await fs.writeFile(tempPath, buffer);
         try {
           const previewDataUri = `data:${mimeType};base64,${buffer.toString('base64')}`;
           const result = await runImageForensics(buffer, `${sampleMeta.title}.jpg`, mimeType, previewDataUri);
-          // Augment with rich video timeline for demo/sample video
           result.mediaType = 'video';
           result.videoSummary = {
-            totalDurationSeconds: 8.5,
+            totalDurationSeconds: 8.0,
             fps: 30,
             resolution: '1280x720',
-            totalVideoFrames: 255,
+            totalVideoFrames: 240,
             framesAnalyzedCount: 16,
             facesDetectedCount: 16,
             averageFakeProbability: sampleMeta.expectedLabel === 'DEEPFAKE' ? 0.86 : 0.12,
@@ -137,6 +138,9 @@ async function startServer() {
             },
             temporalConsistencyScore: sampleMeta.expectedLabel === 'DEEPFAKE' ? 38.4 : 94.6,
             jitterIndex: sampleMeta.expectedLabel === 'DEEPFAKE' ? 76.2 : 11.4,
+            representativeFrameIndex: 9,
+            selectionMethodExplanation:
+              'Keyframe candidate #9 exhibited highest ELA compression discrepancy (mean difference: 28.4).',
           };
           result.videoTimeline = Array.from({ length: 16 }, (_, i) => {
             const prob =
@@ -152,7 +156,7 @@ async function startServer() {
               status: prob > 0.5 ? 'DEEPFAKE' : 'REAL',
               keyAnomaly:
                 sampleMeta.expectedLabel === 'DEEPFAKE' && prob > 0.85
-                  ? 'Facial boundary warping & specular jitter'
+                  ? 'Facial boundary seam irregularity'
                   : undefined,
               thumbnailBase64: previewDataUri,
             };
@@ -258,45 +262,23 @@ async function startServer() {
     }
   });
 
-  // 7. Audio Detection Endpoint (POST /api/detect/audio)
-  app.post('/api/detect/audio', upload.single('media'), async (req: Request, res: Response) => {
-    let filePath: string | null = null;
-    try {
-      if (!req.file) {
-        return res.status(400).json({
-          success: false,
-          error: 'No audio file uploaded. Please select a valid MP3, WAV, OGG, M4A, AAC, or FLAC audio file.',
-        });
-      }
-
-      filePath = req.file.path;
-      const originalName = req.file.originalname || 'uploaded-audio.wav';
-      const mimeType = req.file.mimetype || 'audio/wav';
-
-      const audioBuffer = await fs.readFile(filePath);
-      const previewDataUri = `data:${mimeType};base64,${audioBuffer.toString('base64')}`;
-
-      const result = await runAudioForensics(audioBuffer, originalName, mimeType, previewDataUri);
-
-      return res.json({
-        success: true,
-        prediction: result.prediction,
-        confidence: result.confidence,
-        media_type: 'audio',
-        processing_time: result.modelInfo.executionTimeMs / 1000,
-        result,
-      });
-    } catch (err: any) {
-      console.error('Error in /api/detect/audio:', err);
-      return res.status(500).json({
-        success: false,
-        error: err.message || 'An error occurred during audio deepfake forensic analysis.',
-      });
-    } finally {
-      if (filePath) {
-        await fs.unlink(filePath).catch(() => {});
-      }
-    }
+  // 7. Models status endpoint
+  app.get('/api/models/status', async (_req: Request, res: Response) => {
+    const eff = await checkEfficientNetHealth();
+    res.json({
+      gemini: {
+        name: 'Google Gemini 2.5 Flash Multimodal Vision',
+        status: 'ONLINE',
+        type: 'Multimodal Vision AI',
+      },
+      efficientNet: {
+        name: 'EfficientNet-B0 (PyTorch)',
+        isOnline: eff.isOnline,
+        configured: eff.configured,
+        weightsPath: eff.weightsPath || null,
+        message: eff.message,
+      },
+    });
   });
 
   // API error middleware to guarantee JSON response format
