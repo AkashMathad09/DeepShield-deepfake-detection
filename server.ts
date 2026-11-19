@@ -1,13 +1,21 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import express, { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs/promises';
+import { existsSync } from 'fs';
 import os from 'os';
 import multer from 'multer';
 import sharp from 'sharp';
 import { createServer as createViteServer } from 'vite';
 import { runImageForensics, runVideoForensics } from './server/forensics.js';
+import { getGeminiKeyDiagnostics } from './server/geminiForensics.js';
 import { createSampleMediaBuffer, SAMPLE_MEDIA_ITEMS } from './server/sampleData.js';
+
+// Load local .env and fallback mounted secret .env (if present and GEMINI_API_KEY is unset)
+dotenv.config();
+if (!process.env.GEMINI_API_KEY && existsSync('/etc/secrets/.env')) {
+  dotenv.config({ path: '/etc/secrets/.env' });
+}
 
 // Guard against unhandled async rejections crashing the Node process (which causes Nginx 502 -> warmup HTML)
 process.on('uncaughtException', (err) => {
@@ -45,13 +53,13 @@ const upload = multer({
 });
 
 function isGeminiConfigured(): boolean {
-  const key = process.env.GEMINI_API_KEY;
-  return Boolean(key && key.trim() !== '' && key !== 'MY_GEMINI_API_KEY');
+  return getGeminiKeyDiagnostics().configured;
 }
 
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
+  console.log('[DeepShield Startup] Gemini configuration:', JSON.stringify(getGeminiKeyDiagnostics()));
 
   // CORS support for preview iframe & external deployments
   app.use((req, res, next) => {
