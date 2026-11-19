@@ -1,13 +1,21 @@
+import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs/promises';
 import os from 'os';
 import multer from 'multer';
-import { spawn } from 'child_process';
+import sharp from 'sharp';
 import { createServer as createViteServer } from 'vite';
 import { runImageForensics, runVideoForensics } from './server/forensics.js';
 import { createSampleMediaBuffer, SAMPLE_MEDIA_ITEMS } from './server/sampleData.js';
-import { checkEfficientNetHealth } from './server/efficientnetClient.js';
+
+// Guard against unhandled async rejections crashing the Node process (which causes Nginx 502 -> warmup HTML)
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception kept server alive:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection kept server alive:', reason);
+});
 
 // Setup file upload handling with multer (store in OS temp dir with safe unique names)
 const upload = multer({
@@ -16,42 +24,45 @@ const upload = multer({
     fileSize: 100 * 1024 * 1024, // 100MB max limit
   },
   fileFilter: (_req, file, cb) => {
-    const allowedImageMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
+    const allowedImageMimes = ['image/jpeg', 'image/jpg', 'image/pjpeg', 'image/png', 'image/webp', 'image/avif'];
     const allowedVideoMimes = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-msvideo', 'video/avi'];
+    const extAllowed = /\.(jpe?g|png|webp|avif|mp4|mov|webm|avi)$/i.test(file.originalname || '');
 
-    if (allowedImageMimes.includes(file.mimetype) || allowedVideoMimes.includes(file.mimetype)) {
+    if (
+      allowedImageMimes.includes(file.mimetype) ||
+      allowedVideoMimes.includes(file.mimetype) ||
+      (extAllowed && (!file.mimetype || file.mimetype === 'application/octet-stream'))
+    ) {
       cb(null, true);
     } else {
       cb(
         new Error(
-          `Unsupported media format: ${file.mimetype}. DeepShield supports Images (JPG, PNG, WEBP, AVIF) and Videos (MP4, MOV, WEBM, AVI).`
+          `Unsupported media format: ${file.mimetype || 'unknown'}. DeepShield supports Images (JPG, PNG, WEBP, AVIF) and Videos (MP4, MOV, WEBM, AVI).`
         )
       );
     }
   },
 });
 
-async function ensureMicroserviceRunning() {
-  const effHealth = await checkEfficientNetHealth();
-  if (!effHealth.isOnline) {
-    try {
-      const child = spawn('python3', ['-m', 'uvicorn', 'microservice.app:app', '--host', '127.0.0.1', '--port', '5050'], {
-        stdio: 'inherit',
-      });
-      child.on('error', (err) => {
-        console.warn('Could not launch EfficientNet microservice automatically:', err.message);
-      });
-    } catch (e: any) {
-      console.warn('Could not spawn microservice:', e.message);
-    }
-  }
+function isGeminiConfigured(): boolean {
+  const key = process.env.GEMINI_API_KEY;
+  return Boolean(key && key.trim() !== '' && key !== 'MY_GEMINI_API_KEY');
 }
 
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
-  ensureMicroserviceRunning().catch((err) => console.warn('Microservice check error:', err));
+  // CORS support for preview iframe & external deployments
+  app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(204);
+    }
+    next();
+  });
 
   app.use(express.json({ limit: '20mb' }));
   app.use(express.urlencoded({ extended: true, limit: '20mb' }));
@@ -59,8 +70,8 @@ async function startServer() {
   // ================= API ROUTES =================
 
   // 1. Health Check
-  app.get('/api/health', async (_req: Request, res: Response) => {
-    const effHealth = await checkEfficientNetHealth();
+  app.get('/api/health', (_req: Request, res: Response) => {
+    const geminiConfigured = isGeminiConfigured();
     res.json({
       status: 'ok',
       service: 'DeepShield Deepfake Detection Engine',
@@ -70,12 +81,7 @@ async function startServer() {
         imageForensics: true,
         videoKeyframeAnalysis: true,
         errorLevelAnalysis: true,
-        multimodalNeuralInference: true,
-        efficientNetMicroservice: effHealth.isOnline,
-      },
-      models: {
-        gemini: { status: 'ONLINE', role: 'Multimodal Vision & Artifact Inspection' },
-        efficientnet: effHealth,
+        multimodalNeuralInference: geminiConfigured,
       },
     });
   });
@@ -192,10 +198,24 @@ async function startServer() {
       const originalName = req.file.originalname || 'uploaded-image.jpg';
       const mimeType = req.file.mimetype;
 
-      const imageBuffer = await fs.readFile(filePath);
-      const previewDataUri = `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
+      const rawBuffer = await fs.readFile(filePath);
+      // Normalize orientation (EXIF) & cap oversized photos so preview/inference coordinates match cleanly and response stays fast
+      let normalizedBuffer = rawBuffer;
+      let normalizedMime = mimeType && mimeType.startsWith('image/') ? mimeType : 'image/jpeg';
+      try {
+        normalizedBuffer = await sharp(rawBuffer)
+          .rotate()
+          .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
+          .jpeg({ quality: 90 })
+          .toBuffer();
+        normalizedMime = 'image/jpeg';
+      } catch {
+        normalizedBuffer = rawBuffer;
+      }
 
-      const result = await runImageForensics(imageBuffer, originalName, mimeType, previewDataUri);
+      const previewDataUri = `data:${normalizedMime};base64,${normalizedBuffer.toString('base64')}`;
+
+      const result = await runImageForensics(normalizedBuffer, originalName, normalizedMime, previewDataUri);
 
       return res.json({
         success: true,
@@ -262,22 +282,23 @@ async function startServer() {
     }
   });
 
-  // 7. Models status endpoint
-  app.get('/api/models/status', async (_req: Request, res: Response) => {
-    const eff = await checkEfficientNetHealth();
+  // 7. Engine status endpoint
+  app.get('/api/models/status', (_req: Request, res: Response) => {
+    const geminiConfigured = isGeminiConfigured();
     res.json({
-      gemini: {
-        name: 'Google Gemini 2.5 Flash Multimodal Vision',
-        status: 'ONLINE',
-        type: 'Multimodal Vision AI',
+      engine: {
+        name: 'DeepShield Forensic Engine',
+        status: geminiConfigured ? 'CONFIGURED' : 'NOT_CONFIGURED',
+        type: 'Multimodal Vision & Optical Forensics',
       },
-      efficientNet: {
-        name: 'EfficientNet-B0 (PyTorch)',
-        isOnline: eff.isOnline,
-        configured: eff.configured,
-        weightsPath: eff.weightsPath || null,
-        message: eff.message,
-      },
+    });
+  });
+
+  // Catch unmatched /api routes as JSON 404 before Vite SPA middleware can serve index.html
+  app.use('/api', (_req: Request, res: Response) => {
+    res.status(404).json({
+      success: false,
+      error: 'API endpoint not found.',
     });
   });
 

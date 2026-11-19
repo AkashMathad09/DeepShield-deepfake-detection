@@ -91,35 +91,6 @@ export interface ModelMetadata {
   executionTimeMs: number;
 }
 
-export interface EfficientNetResult {
-  model: string;
-  configured: boolean;
-  status: 'SUCCESS' | 'NOT_CONFIGURED' | 'OFFLINE' | 'ERROR';
-  prediction: MediaPrediction;
-  confidence: number;
-  realProbability?: number | null;
-  fakeProbability: number | null;
-  executionTimeMs: number;
-  weightsPath?: string | null;
-  message: string;
-  facesDetected?: number;
-  faces?: Array<{
-    id: number;
-    box: BoundingBox;
-  }>;
-}
-
-export interface GeminiResultSummary {
-  model: string;
-  status?: 'SUCCESS' | 'NOT_CONFIGURED' | 'OFFLINE' | 'ERROR';
-  prediction: MediaPrediction;
-  confidence: number;
-  fakeProbability: number | null;
-  summary: string;
-  manipulationType: string;
-  executionTimeMs: number;
-}
-
 export interface AnalysisResult {
   id: string;
   timestamp: string;
@@ -130,7 +101,7 @@ export interface AnalysisResult {
   previewUrl: string;
   prediction: MediaPrediction;
   confidence: number; // 0..100
-  fakeProbability: number; // 0..1
+  fakeProbability: number | null; // 0..1 (null when inconclusive/unavailable)
   interpretation: ConfidenceInterpretation;
   manipulationCategory: string;
   summaryText: string;
@@ -149,9 +120,6 @@ export interface AnalysisResult {
     spectralHighFreqEnergy: number;
     colorChannelInconsistency: number;
   };
-  // Independent model outputs
-  geminiResult?: GeminiResultSummary;
-  efficientNetResult?: EfficientNetResult;
 }
 
 export interface SampleMediaItem {
@@ -172,6 +140,6 @@ export interface HistoryRecord {
   mediaType: 'image' | 'video';
   prediction: MediaPrediction;
   confidence: number;
-  fakeProbability: number;
+  fakeProbability: number | null;
   result: AnalysisResult;
 }

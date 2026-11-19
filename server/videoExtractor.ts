@@ -61,7 +61,7 @@ async function generateProceduralVideoFrame(
   const faceH = 230;
 
   const svgOverlay = `
-  <svg width="${width}" height="${height}" viewBox="0 0 ${width}" ${height} xmlns="http://www.w3.org/2000/svg">
+  <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stop-color="#090d16" />
@@ -149,7 +149,8 @@ export async function processVideoFile(videoPath: string, maxFrames: number = 16
 
         try {
           const { stdout } = await execAsync(
-            `ffprobe -v quiet -print_format json -show_format -show_streams "${videoPath}"`
+            `ffprobe -v quiet -print_format json -show_format -show_streams "${videoPath}"`,
+            { timeout: 15000 }
           );
           const probeData = JSON.parse(stdout || '{}');
           const videoStream = (probeData.streams || []).find((s: any) => s.codec_type === 'video');
@@ -181,7 +182,7 @@ export async function processVideoFile(videoPath: string, maxFrames: number = 16
           // Probe via ffmpeg stderr fallback
           try {
             const probeOutput = await new Promise<string>((resolve) => {
-              exec(`ffmpeg -i "${videoPath}"`, (_err, _stdout, stderr) => {
+              exec(`ffmpeg -nostdin -i "${videoPath}"`, { timeout: 10000 }, (_err, _stdout, stderr) => {
                 resolve(stderr || '');
               });
             });
@@ -215,8 +216,8 @@ export async function processVideoFile(videoPath: string, maxFrames: number = 16
         const targetFps = Math.max(0.2, Math.min(2.0, maxFrames / durationSeconds));
         const outputPattern = path.join(tempDir, 'frame_%03d.jpg');
 
-        const extractCmd = `ffmpeg -y -i "${videoPath}" -vf "fps=${targetFps.toFixed(3)},scale='min(720,iw)':-2" -q:v 3 -vframes ${maxFrames} "${outputPattern}"`;
-        await execAsync(extractCmd);
+        const extractCmd = `ffmpeg -nostdin -y -i "${videoPath}" -vf "fps=${targetFps.toFixed(3)},scale='min(720,iw)':-2" -q:v 3 -vframes ${maxFrames} "${outputPattern}"`;
+        await execAsync(extractCmd, { timeout: 25000 });
 
         const files = await fs.readdir(tempDir);
         const frameFiles = files

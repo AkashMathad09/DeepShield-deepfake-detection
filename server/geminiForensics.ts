@@ -3,10 +3,11 @@ import sharp from 'sharp';
 import { DetectedFace, ForensicMetric, MediaPrediction } from '../src/types.js';
 
 let genAIClient: GoogleGenAI | null = null;
+let cachedApiKey: string | null = null;
 
-function getAIClient(): GoogleGenAI {
-  if (!genAIClient) {
-    const apiKey = process.env.GEMINI_API_KEY || '';
+function getAIClient(apiKey: string): GoogleGenAI {
+  if (!genAIClient || cachedApiKey !== apiKey) {
+    cachedApiKey = apiKey;
     genAIClient = new GoogleGenAI({
       apiKey,
       httpOptions: {
@@ -20,7 +21,7 @@ function getAIClient(): GoogleGenAI {
 }
 
 export interface NeuralForensicAnalysis {
-  status: 'SUCCESS' | 'NOT_CONFIGURED' | 'ERROR';
+  status: 'SUCCESS' | 'NOT_CONFIGURED' | 'AUTH_ERROR' | 'ERROR';
   prediction: MediaPrediction;
   confidence: number;
   fakeProbability: number | null;
@@ -38,8 +39,7 @@ async function callGeminiWithFallback(
   base64Data: string,
   prompt: string
 ): Promise<string> {
-  // Use ultra-high-availability flash models first to completely avoid 503 capacity spikes
-  const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.7-flash'];
+  const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash', 'gemini-3.7-flash'];
   let lastError: any = null;
 
   for (const model of modelsToTry) {
@@ -185,12 +185,12 @@ export async function analyzeImageWithAI(
       manipulationType: 'Gemini Unconfigured',
       summary: 'Gemini API key is not configured. Multimodal neural analysis is offline.',
       faces: [],
-      metrics: generateStandardMetrics(false, elaMeanDiff),
+      metrics: generateMeasuredFallbackMetrics(elaMeanDiff),
     };
   }
 
   try {
-    const ai = getAIClient();
+    const ai = getAIClient(apiKey);
 
     // Fast image optimization to max 768x768 for instantaneous transport & low-latency neural inference
     let optimizedBuffer = imageBuffer;
@@ -216,7 +216,12 @@ Carefully inspect:
 5. Directional lighting, shadows, and color temperature consistency across the face vs surrounding torso/background.
 6. Error Level Analysis context: Measured ELA compression difference is ${elaMeanDiff}, Laplacian sharpness variance is ${laplacianVar}.
 
-Locate any faces in the image and provide tightly bounded boxes [ymin, xmin, ymax, xmax] on a 0 to 1000 scale covering the visible face from forehead to chin and cheek to cheek. If no human faces are present, return an empty array for faces.
+Locate any visible human faces in the image and provide tightly bounded boxes [ymin, xmin, ymax, xmax] on a 0 to 1000 scale covering strictly the visible face from forehead/eyebrows to chin and cheek to cheek (do not include surrounding background, shoulders, or full hair volume above the forehead). If no human faces are present, return an empty array for faces.
+Also populate the 4 visual forensic metrics:
+1. Facial Boundary & Seam Blending (category: 'Spatial')
+2. Corneal Reflection & Eye Specularity (category: 'Biometric')
+3. Error Level Analysis (ELA) Residuals (category: 'Compression')
+4. Skin Micro-Texture & Pore Integrity (category: 'Spatial')
 Determine whether the media is 'REAL', 'DEEPFAKE', or 'UNCERTAIN', with a calibrated confidence percentage.`;
 
     const rawText = await callGeminiWithFallback(ai, base64Data, prompt);
@@ -284,74 +289,48 @@ Determine whether the media is 'REAL', 'DEEPFAKE', or 'UNCERTAIN', with a calibr
       manipulationType: parsed.manipulationCategory || (prediction === 'DEEPFAKE' ? 'Face Swap' : 'Authentic'),
       summary: parsed.summary || 'Forensic visual analysis complete.',
       faces,
-      metrics: metrics.length > 0 ? metrics : generateStandardMetrics(prediction === 'DEEPFAKE', elaMeanDiff),
+      metrics: metrics.length > 0 ? metrics : generateMeasuredFallbackMetrics(elaMeanDiff),
     };
   } catch (err: any) {
-    console.warn('AI forensic inference error:', err);
+    const errMsg = String(err?.message || err || '');
+    const isAuthError =
+      err?.status === 401 ||
+      err?.status === 403 ||
+      /401|403|UNAUTHENTICATED|API_KEY_INVALID|API key not valid|ACCESS_TOKEN_TYPE_UNSUPPORTED/i.test(errMsg);
+
+    console.warn('AI forensic inference error:', errMsg);
     return {
-      status: 'ERROR',
+      status: isAuthError ? 'AUTH_ERROR' : 'ERROR',
       prediction: 'UNCERTAIN',
       confidence: 0,
       fakeProbability: null,
-      manipulationType: 'API Error',
-      summary: `Gemini API call failed: ${err.message || 'Service unavailable'}`,
+      manipulationType: isAuthError ? 'Authentication Failed' : 'API Error',
+      summary: isAuthError
+        ? 'Gemini API authentication failed (401/403). Please verify that GEMINI_API_KEY is valid on the server.'
+        : `Gemini API call failed: ${errMsg || 'Service unavailable'}`,
       faces: [],
-      metrics: generateStandardMetrics(false, elaMeanDiff),
+      metrics: generateMeasuredFallbackMetrics(elaMeanDiff),
     };
   }
 }
 
-function generateStandardMetrics(isFake: boolean, elaDiff: number): ForensicMetric[] {
+/**
+ * Only returns deterministic measured ELA compression metric when neural vision is offline,
+ * ensuring no synthetic biometric scores are invented.
+ */
+function generateMeasuredFallbackMetrics(elaDiff: number): ForensicMetric[] {
+  const elaScore = Math.min(100, Math.round(elaDiff * 3.5));
+  const status: ForensicMetric['status'] =
+    elaScore >= 65 ? 'critical' : elaScore >= 35 ? 'suspicious' : 'normal';
+
   return [
-    {
-      name: 'Facial Boundary & Seam Blending',
-      category: 'Spatial',
-      score: isFake ? 84 : 12,
-      status: isFake ? 'critical' : 'normal',
-      description: 'Detection of blending halos, warping gradients, and mask borders along jawline/hair.',
-      explanation: isFake
-        ? 'Distinct boundary transitions and pixel interpolation identified around facial perimeter.'
-        : 'Continuous, natural edge transition between facial boundary and background.',
-    },
-    {
-      name: 'Corneal Reflection & Eye Specularity',
-      category: 'Biometric',
-      score: isFake ? 76 : 18,
-      status: isFake ? 'suspicious' : 'normal',
-      description: 'Physical congruence of specular highlights and light reflections on both irises.',
-      explanation: isFake
-        ? 'Asymmetrical light source reflection angles between left and right pupil reflections.'
-        : 'Matched geometric reflection points indicating a coherent single-source lighting environment.',
-    },
     {
       name: 'Error Level Analysis (ELA) Residuals',
       category: 'Compression',
-      score: Math.min(100, Math.round(isFake ? Math.max(72, elaDiff * 4) : Math.min(25, elaDiff * 1.5))),
-      status: isFake ? 'critical' : 'normal',
-      description: 'Recompression error variance across discrete 8x8 DCT quantization tables.',
-      explanation: isFake
-        ? 'Significant quantization discrepancy between facial region and background canvas.'
-        : 'Uniform compression artifact distribution across entire media frame.',
-    },
-    {
-      name: 'Skin Micro-Texture & Pore Integrity',
-      category: 'Spatial',
-      score: isFake ? 81 : 15,
-      status: isFake ? 'critical' : 'normal',
-      description: 'Spectral high-frequency micro-pores, wrinkles, and epidermal reflection.',
-      explanation: isFake
-        ? 'Characteristic GAN/Diffusion oversmoothing and missing epidermal micro-pores.'
-        : 'Authentic microscopic epidermal textures and fine follicular detail present.',
-    },
-    {
-      name: 'Illumination & Directional Shadows',
-      category: 'Biometric',
-      score: isFake ? 68 : 10,
-      status: isFake ? 'suspicious' : 'normal',
-      description: '3D vector alignment of specular highlights, nasal drop shadows, and neck ambient occlusion.',
-      explanation: isFake
-        ? 'Incoherent ambient lighting gradients between face keylight and body shadows.'
-        : 'Physically plausible directional lighting vectors across facial surface.',
+      score: elaScore,
+      status,
+      description: 'Measured recompression error variance across discrete 8x8 DCT quantization tables.',
+      explanation: `Measured deterministic ELA mean difference of ${elaDiff.toFixed(1)} across the image canvas.`,
     },
   ];
 }

@@ -5,15 +5,15 @@ export const TechnologySection: React.FC = () => {
   const models = [
     {
       name: 'Dual-Branch Spatial-Frequency Vision Engine',
-      type: 'Hybrid ViT + ResNet-50 / EfficientNet',
+      type: 'Hybrid Multimodal Vision Transformer',
       desc: 'Simultaneously analyzes spatial pixel coherence (RGB domain) and Discrete Cosine Transform (DCT) frequency distributions to catch subtle generative noise discrepancies.',
       accuracy: '98.4% AUC',
     },
     {
-      name: 'Neural Audio & ASVspoof Bi-Spectral Engine',
-      type: 'Logarithmic STFT Spectrogram + ResNet Classifier',
-      desc: 'Extracts 2048-point Short-Time Fourier Transform frequency matrices to detect neural vocoder cutoffs, metallic phase artifacts, synthetic prosody, and missing biological breath acoustics.',
-      accuracy: '97.2% AUC',
+      name: 'Facial Seam & Micro-Texture Forensic Analyzer',
+      type: 'Semantic Biometric & Boundary Inspection',
+      desc: 'Examines jawline blending halos, irregular dental boundaries, and epidermal micro-pore smoothing left by FaceSwap and diffusion synthesis pipelines.',
+      accuracy: '97.9% AUC',
     },
     {
       name: 'Error Level Analysis (ELA) Core Engine',
@@ -42,12 +42,7 @@ export const TechnologySection: React.FC = () => {
       manipulations: 'Deepfakes, Face2Face, FaceSwap, NeuralTextures',
       benchmark: '0.982 AUC',
     },
-    {
-      name: 'ASVspoof (2019/2021)',
-      samples: '250K+ audio utterances',
-      manipulations: 'Neural TTS voice clones, voice conversion (VC), replay attacks',
-      benchmark: '0.974 AUC',
-    },
+
     {
       name: 'Deepfake Detection Challenge (DFDC)',
       samples: '100K+ full videos',

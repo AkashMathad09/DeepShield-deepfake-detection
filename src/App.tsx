@@ -1,19 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { Header, ActiveTab } from './components/Header';
-import { DashboardView } from './components/DashboardView';
+import { Hero } from './components/Hero';
 import { UploadZone } from './components/UploadZone';
 import { AnalysisProgress } from './components/AnalysisProgress';
 import { ResultCard } from './components/ResultCard';
 import { HeatmapViewer } from './components/HeatmapViewer';
 import { VideoAnalysisChart } from './components/VideoAnalysisChart';
 import { HistoryView } from './components/HistoryView';
+import { HowItWorks } from './components/HowItWorks';
+import { TechnologySection } from './components/TechnologySection';
+import { ApiDocs } from './components/ApiDocs';
 import { AnalysisResult, SampleMediaItem, HistoryRecord } from './types';
-import { AlertCircle, Shield, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, Shield } from 'lucide-react';
 
 const STORAGE_KEY = 'deepshield_analysis_history_v5';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('studio');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisMediaType, setAnalysisMediaType] = useState<'image' | 'video'>('image');
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
@@ -37,7 +40,7 @@ export default function App() {
     }
   }, [history]);
 
-  // Load sample test fixtures from backend
+  // Load sample test fixtures from backend (Images & Videos only)
   useEffect(() => {
     fetch('/api/samples')
       .then(async (res) => {
@@ -46,8 +49,11 @@ export default function App() {
       })
       .then((data) => {
         if (data.success && data.samples) {
-          // Filter out any non-image/video samples just in case
-          setSamples(data.samples.filter((s: SampleMediaItem) => s.mediaType === 'image' || s.mediaType === 'video'));
+          setSamples(
+            data.samples.filter(
+              (s: SampleMediaItem) => s.mediaType === 'image' || s.mediaType === 'video'
+            )
+          );
         }
       })
       .catch((err) => {
@@ -76,26 +82,64 @@ export default function App() {
     } catch {}
   };
 
-  // Safe JSON response parsing helper
-  const parseJsonResponse = async (response: globalThis.Response) => {
-    const text = await response.text();
-    let data: any;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      const isHtml = text.trim().startsWith('<') || text.includes('<!DOCTYPE') || text.includes('<html>');
-      if (isHtml) {
-        throw new Error(
-          `Server returned an HTML status page (${response.status}). Please check server status.`
-        );
+  // Fetch JSON API endpoint with automatic retry if preview proxy is warming up (502/warmup HTML)
+  const fetchApiJson = async (url: string, init: RequestInit): Promise<any> => {
+    const maxAttempts = 3;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const response = await fetch(url, {
+        ...init,
+        credentials: 'same-origin',
+        headers: {
+          Accept: 'application/json',
+          ...(init.headers || {}),
+        },
+      });
+
+      const text = await response.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || `Request failed with status ${response.status}.`);
+        }
+        return data;
+      } catch (err: any) {
+        if (err instanceof SyntaxError || !text.trim().startsWith('{')) {
+          const isHtml =
+            text.trim().startsWith('<') ||
+            text.includes('<!DOCTYPE') ||
+            text.includes('<html');
+
+          if (isHtml) {
+            const isWarmup =
+              text.includes('Starting Server') ||
+              response.status === 502 ||
+              response.status === 503 ||
+              response.status === 504;
+
+            if (isWarmup && attempt < maxAttempts) {
+              await new Promise((r) => setTimeout(r, 1800 * attempt));
+              continue;
+            }
+
+            const titleMatch = text.match(/<title>([^<]+)<\/title>/i);
+            const htmlTitle = titleMatch ? titleMatch[1].trim() : 'HTML response';
+            throw new Error(
+              `Server returned an HTML page (${response.status}: ${htmlTitle}) instead of JSON. Please wait a moment and try again, or refresh the preview tab if session auth expired.`
+            );
+          }
+
+          if (!response.ok) {
+            throw new Error(`Server error (${response.status}): ${text.slice(0, 120)}`);
+          }
+          throw new Error('Invalid JSON response from server.');
+        }
+        throw err;
       }
-      throw new Error(
-        response.ok
-          ? 'Invalid JSON response from server'
-          : `Server error (${response.status}): ${text.slice(0, 120)}`
-      );
     }
-    return data;
+
+    throw new Error('Server remained unavailable after retries. Please try again.');
   };
 
   // Handle uploaded file analysis
@@ -105,29 +149,30 @@ export default function App() {
     const isVideo = file.type.startsWith('video/') || /\.(mp4|mov|webm|avi)$/i.test(file.name);
     setAnalysisMediaType(isVideo ? 'video' : 'image');
 
-    const formData = new FormData();
-    formData.append('media', file);
-    if (isVideo) {
-      formData.append('sampleFrames', sampleFrames.toString());
-    }
-
     try {
       const endpoint = isVideo ? '/api/detect/video' : '/api/detect/image';
-      const response = await fetch(endpoint, {
+      const data = await fetchApiJson(endpoint, {
         method: 'POST',
-        body: formData,
+        body: (() => {
+          const fd = new FormData();
+          fd.append('media', file);
+          if (isVideo) {
+            fd.append('sampleFrames', sampleFrames.toString());
+          }
+          return fd;
+        })(),
       });
-
-      const data = await parseJsonResponse(response);
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Failed to complete forensic analysis.');
-      }
 
       setAnalysisResult(data.result);
       addRecordToHistory(data.result);
+      setActiveTab('studio');
     } catch (err: any) {
       console.error('Analysis error:', err);
-      setErrorMsg(err.message || 'An unexpected error occurred during analysis.');
+      const msg =
+        err instanceof TypeError && /fetch/i.test(err.message)
+          ? 'Network error: Unable to reach the DeepShield backend API. Please verify the server is running.'
+          : err.message || 'An unexpected error occurred during analysis.';
+      setErrorMsg(msg);
     } finally {
       setIsAnalyzing(false);
     }
@@ -141,19 +186,20 @@ export default function App() {
     setAnalysisMediaType(sample?.mediaType || 'image');
 
     try {
-      const response = await fetch(`/api/samples/${sampleId}/analyze`, {
+      const data = await fetchApiJson(`/api/samples/${sampleId}/analyze`, {
         method: 'POST',
       });
-      const data = await parseJsonResponse(response);
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Failed to analyze sample.');
-      }
 
       setAnalysisResult(data.result);
       addRecordToHistory(data.result);
+      setActiveTab('studio');
     } catch (err: any) {
       console.error('Sample analysis error:', err);
-      setErrorMsg(err.message || 'Failed to analyze selected test fixture.');
+      const msg =
+        err instanceof TypeError && /fetch/i.test(err.message)
+          ? 'Network error: Unable to reach the DeepShield backend API.'
+          : err.message || 'Failed to analyze selected test fixture.';
+      setErrorMsg(msg);
     } finally {
       setIsAnalyzing(false);
     }
@@ -162,20 +208,28 @@ export default function App() {
   const handleReset = () => {
     setAnalysisResult(null);
     setErrorMsg(null);
-    setActiveTab('dashboard');
+    setActiveTab('studio');
+  };
+
+  const scrollToUploadStudio = () => {
+    setActiveTab('studio');
+    setTimeout(() => {
+      document.getElementById('upload-studio')?.scrollIntoView({ behavior: 'smooth' });
+    }, 50);
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans antialiased">
+    <div className="relative min-h-screen bg-[#020617] text-slate-100 flex flex-col font-sans antialiased selection:bg-blue-500/30 selection:text-blue-200">
+      {/* Subtle Ambient Background Radial Glows */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden -z-10">
+        <div className="absolute -top-40 left-1/4 h-[500px] w-[500px] rounded-full bg-blue-600/12 blur-[130px]" />
+        <div className="absolute top-1/3 right-1/6 h-[420px] w-[420px] rounded-full bg-indigo-600/10 blur-[120px]" />
+      </div>
+
       {/* Navigation Header */}
       <Header
         activeTab={activeTab}
-        onSelectTab={(tab) => {
-          setActiveTab(tab);
-          if (tab === 'dashboard' || tab === 'image' || tab === 'video') {
-            // Keep analysis result if reviewing, or allow tab navigation
-          }
-        }}
+        onSelectTab={(tab) => setActiveTab(tab)}
         hasResult={!!analysisResult}
         historyCount={history.length}
       />
@@ -184,14 +238,14 @@ export default function App() {
       <main className="flex-1 py-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
         {/* Error Notification */}
         {errorMsg && (
-          <div className="mb-6 rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs text-rose-800 shadow-xs flex items-center justify-between">
+          <div className="mb-6 rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-xs text-rose-200 backdrop-blur-xl shadow-lg flex items-center justify-between gap-4">
             <div className="flex items-center space-x-2.5">
-              <AlertCircle className="h-4 w-4 text-rose-600 flex-shrink-0" />
+              <AlertCircle className="h-4 w-4 text-rose-400 flex-shrink-0" />
               <span>{errorMsg}</span>
             </div>
             <button
               onClick={() => setErrorMsg(null)}
-              className="font-bold text-rose-700 hover:text-rose-900 transition"
+              className="font-bold text-rose-300 hover:text-white transition"
             >
               Dismiss
             </button>
@@ -201,76 +255,48 @@ export default function App() {
         {/* Loading Progress State */}
         {isAnalyzing ? (
           <AnalysisProgress mediaType={analysisMediaType} />
-        ) : analysisResult && (activeTab === 'image' || activeTab === 'video' || (activeTab === 'dashboard' && analysisResult)) ? (
-          /* Active Result Display */
-          <ResultCard
-            result={analysisResult}
-            onOpenHeatmap={() => setActiveTab('heatmap')}
-            onOpenVideoTimeline={() => setActiveTab('video')}
-            onReset={handleReset}
-          />
         ) : (
-          /* Tab Specific Views */
           <>
-            {/* Dashboard Tab */}
-            {activeTab === 'dashboard' && (
-              <DashboardView
-                history={history}
-                samples={samples}
-                onNavigateToImage={() => {
-                  setAnalysisResult(null);
-                  setActiveTab('image');
-                }}
-                onNavigateToVideo={() => {
-                  setAnalysisResult(null);
-                  setActiveTab('video');
-                }}
-                onSelectSample={handleSelectSample}
-                onViewHistoryResult={(res) => {
-                  setAnalysisResult(res);
-                  setActiveTab('dashboard');
-                }}
-                onClearHistory={handleClearHistory}
-                isAnalyzing={isAnalyzing}
+            {/* Studio Tab: Result OR Hero + UploadZone */}
+            {activeTab === 'studio' && (
+              analysisResult ? (
+                <ResultCard
+                  result={analysisResult}
+                  onOpenHeatmap={() => setActiveTab('heatmap')}
+                  onOpenVideoTimeline={() => setActiveTab('video')}
+                  onReset={handleReset}
+                />
+              ) : (
+                <div className="space-y-6">
+                  <Hero
+                    onAnalyzeClick={scrollToUploadStudio}
+                    onHowItWorksClick={() => setActiveTab('how-it-works')}
+                  />
+                  <UploadZone
+                    onAnalyzeFile={handleAnalyzeFile}
+                    onSelectSample={handleSelectSample}
+                    samples={samples}
+                    isAnalyzing={isAnalyzing}
+                    defaultMediaType="image"
+                  />
+                </div>
+              )
+            )}
+
+            {/* Heatmap / ELA Inspector Tab */}
+            {activeTab === 'heatmap' && (
+              <HeatmapViewer
+                result={analysisResult}
+                onBackToStudio={() => setActiveTab('studio')}
               />
             )}
 
-            {/* Image Detection Tab */}
-            {activeTab === 'image' && (
-              <div className="space-y-6 max-w-4xl mx-auto">
-                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                  <h1 className="text-xl font-bold text-slate-900">Image Deepfake Detection</h1>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Upload a high-resolution image to run independent neural classification and Error Level Analysis (ELA).
-                  </p>
-                </div>
-                <UploadZone
-                  onAnalyzeFile={handleAnalyzeFile}
-                  onSelectSample={handleSelectSample}
-                  samples={samples}
-                  isAnalyzing={isAnalyzing}
-                  defaultMediaType="image"
-                />
-              </div>
-            )}
-
-            {/* Video Detection Tab */}
+            {/* Video Keyframe Timeline Tab */}
             {activeTab === 'video' && (
-              <div className="space-y-6 max-w-4xl mx-auto">
-                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                  <h1 className="text-xl font-bold text-slate-900">Video Deepfake Detection</h1>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Upload an MP4, MOV, or WEBM video. Keyframes will be sampled via FFmpeg and evaluated for optical compression variance.
-                  </p>
-                </div>
-                <UploadZone
-                  onAnalyzeFile={handleAnalyzeFile}
-                  onSelectSample={handleSelectSample}
-                  samples={samples}
-                  isAnalyzing={isAnalyzing}
-                  defaultMediaType="video"
-                />
-              </div>
+              <VideoAnalysisChart
+                result={analysisResult}
+                onBackToStudio={() => setActiveTab('studio')}
+              />
             )}
 
             {/* History Tab */}
@@ -279,37 +305,42 @@ export default function App() {
                 history={history}
                 onSelectResult={(res) => {
                   setAnalysisResult(res);
-                  setActiveTab('dashboard');
+                  setActiveTab('studio');
                 }}
                 onClearHistory={handleClearHistory}
-                onNavigateToUpload={() => setActiveTab('image')}
+                onNavigateToUpload={() => {
+                  setAnalysisResult(null);
+                  setActiveTab('studio');
+                }}
               />
             )}
 
-            {/* Heatmap / Detailed Inspection Tab */}
-            {activeTab === 'heatmap' && (
-              <HeatmapViewer
-                result={analysisResult}
-                onBackToStudio={() => setActiveTab('dashboard')}
-              />
-            )}
+            {/* How It Works Tab */}
+            {activeTab === 'how-it-works' && <HowItWorks />}
+
+            {/* Technology & Benchmarks Tab */}
+            {activeTab === 'technology' && <TechnologySection />}
+
+            {/* REST API Docs Tab */}
+            {activeTab === 'api' && <ApiDocs />}
           </>
         )}
       </main>
 
-      {/* Clean Minimalist Light Footer */}
-      <footer className="mt-auto border-t border-slate-200 bg-white py-4 px-4 sm:px-8 text-xs text-slate-500">
+      {/* Dark Glassmorphic Footer */}
+      <footer className="mt-auto border-t border-white/10 bg-slate-950/70 backdrop-blur-xl py-4 px-4 sm:px-8 text-xs text-slate-400 no-print">
         <div className="mx-auto max-w-7xl flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center space-x-2">
-            <span className="font-semibold text-slate-700">DeepShield</span>
+            <Shield className="h-3.5 w-3.5 text-blue-400" />
+            <span className="font-bold text-slate-200">DeepShield</span>
             <span>•</span>
-            <span>AI Forensic Verification Platform</span>
+            <span>AI Forensic Verification Studio</span>
           </div>
 
-          <div className="flex items-center space-x-4 text-[11px] text-slate-500">
-            <span>Image & Video Verification</span>
+          <div className="flex items-center space-x-4 text-[11px] text-slate-400">
+            <span>Human Face Image & Video Deepfake Detection</span>
             <span>•</span>
-            <span>Google Gemini + PyTorch EfficientNet-B0 + ELA</span>
+            <span>Multimodal Vision + Error Level Analysis (ELA)</span>
           </div>
         </div>
       </footer>

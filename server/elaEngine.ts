@@ -17,13 +17,19 @@ export interface ElaResult {
  */
 export async function computeEla(imageBuffer: Buffer, quality: number = 90, scaleFactor: number = 20): Promise<ElaResult> {
   try {
+    // Normalize orientation & cap dimension for fast deterministic ELA calculation
+    const normalizedBuf = await sharp(imageBuffer)
+      .rotate()
+      .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
+      .toBuffer();
+
     // 1. Normalize source to JPEG
-    const originalJpg = await sharp(imageBuffer)
+    const originalJpg = await sharp(normalizedBuf)
       .jpeg({ quality: 100 })
       .toBuffer();
 
     // 2. Recompress at specified quality (e.g. 90%)
-    const recompressedJpg = await sharp(imageBuffer)
+    const recompressedJpg = await sharp(normalizedBuf)
       .jpeg({ quality })
       .toBuffer();
 
@@ -77,7 +83,7 @@ export async function computeEla(imageBuffer: Buffer, quality: number = 90, scal
     const elaDataUri = `data:image/png;base64,${elaBuffer.toString('base64')}`;
 
     // 5. Calculate approximate Laplacian / high frequency variance
-    const greyscale = await sharp(imageBuffer)
+    const greyscale = await sharp(normalizedBuf)
       .greyscale()
       .raw()
       .toBuffer({ resolveWithObject: true });
@@ -151,7 +157,12 @@ export async function generateAnomalyHeatmap(
   isFake: boolean
 ): Promise<string> {
   try {
-    const meta = await sharp(imageBuffer).metadata();
+    const baseImage = await sharp(imageBuffer)
+      .rotate()
+      .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 88 })
+      .toBuffer();
+    const meta = await sharp(baseImage).metadata();
     const width = meta.width || 640;
     const height = meta.height || 480;
 
@@ -212,7 +223,7 @@ export async function generateAnomalyHeatmap(
       </svg>
     `);
 
-    const heatmapOverlay = await sharp(imageBuffer)
+    const heatmapOverlay = await sharp(baseImage)
       .composite([{ input: svgBuffer, blend: 'screen' }])
       .jpeg({ quality: 85 })
       .toBuffer();

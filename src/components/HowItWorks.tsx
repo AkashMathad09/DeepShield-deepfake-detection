@@ -68,10 +68,10 @@ export const HowItWorks: React.FC = () => {
       detection: 'Multi-frame temporal consistency tracking detects abnormal optical flow variance and sudden frame-to-frame confidence dips.',
     },
     {
-      name: 'Voice-Driven Lip Sync (Wav2Lip)',
-      category: 'Audio-Visual GANs',
-      flaw: 'Concentrates synthesis strictly on the lower jaw and oral cavity, introducing localized blurring around lips and unnatural dental geometry.',
-      detection: 'Grad-CAM heatmaps highlight high localized anomaly scores isolated exclusively around the mouth region.',
+      name: 'Facial Attribute & Expression Synthesis',
+      category: 'NeuralTextures & Inpainting',
+      flaw: 'Concentrates synthesis on the lower jaw, mouth, or eyelids, introducing localized smoothing and irregular dental geometry.',
+      detection: 'Radial-gradient anomaly heatmaps and Laplacian sharpness variance isolate localized high-frequency inconsistencies.',
     },
   ];
 
