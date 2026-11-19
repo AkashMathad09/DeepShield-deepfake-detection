@@ -95,6 +95,15 @@ export interface ModelMetadata {
   inferenceEngine: string;
   executionTimeMs: number;
 }
+export interface EfficientNetResult {
+  status: 'available' | 'unavailable';
+  model: string;
+  prediction?: 'REAL' | 'DEEPFAKE';
+  realProbability?: number;
+  fakeProbability?: number;
+  inferenceTimeMs?: number;
+  error?: string;
+}
 
 export interface AnalysisResult {
   id: string;
@@ -120,6 +129,7 @@ export interface AnalysisResult {
   videoSummary?: VideoAnalysisSummary;
   audioSummary?: AudioForensicDetails;
   modelInfo: ModelMetadata;
+  efficientNet?: EfficientNetResult;
   technicalDetails: {
     elaMeanDifference: number;
     laplacianBlurVariance: number;

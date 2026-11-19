@@ -1,6 +1,7 @@
 import { computeEla, generateAnomalyHeatmap } from './elaEngine.js';
 import { analyzeImageWithAI } from './geminiForensics.js';
 import { processVideoFile } from './videoExtractor.js';
+import { analyzeWithEfficientNet } from './efficientNetClient.js';
 import {
   AnalysisResult,
   ConfidenceInterpretation,
@@ -29,6 +30,12 @@ export async function runImageForensics(
     mimeType,
     elaResult.meanDifference,
     elaResult.laplacianVariance
+  );
+
+  // Run independent EfficientNet-B0 visual classification
+  const efficientNetResult = await analyzeWithEfficientNet(
+    imageBuffer,
+    filename
   );
 
   // 3. Generate Anomaly Heatmap
@@ -69,6 +76,7 @@ export async function runImageForensics(
     metrics: neuralResult.metrics,
     elaHeatmapUrl: elaResult.elaDataUri,
     gradCamHeatmapUrl: gradCamHeatmapUrl || previewDataUri,
+    efficientNet: efficientNetResult,
     modelInfo: {
       name: 'DeepShield Dual-Branch Forensics v4.2 (Spatial-Frequency ViT + ELA)',
       architecture: 'Multimodal Vision Transformer + Discrete Cosine Transform Spectral Residual Net',

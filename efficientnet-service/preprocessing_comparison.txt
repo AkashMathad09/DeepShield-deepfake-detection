@@ -1,0 +1,44 @@
+
+DEEPSHIELD - PREPROCESSING COMPARISON
+
+Model: EfficientNet-B0
+Dataset: Real vs Fake Faces
+Total samples: 200 (100 REAL, 100 FAKE)
+
+PIPELINE A - CURRENT PREPROCESSING
+Resize: 224 x 224
+RGB conversion: Yes
+ToTensor: Yes
+ImageNet normalization: No
+
+Accuracy: 52.00%
+Precision: 51.12%
+Recall: 91.00%
+F1-score: 65.47%
+Inference time: 2.67 seconds
+
+PIPELINE B - IMAGENET NORMALIZATION
+Resize: 224 x 224
+RGB conversion: Yes
+ToTensor: Yes
+ImageNet normalization: Yes
+
+Accuracy: 49.50%
+Precision: 49.21%
+Recall: 31.00%
+F1-score: 38.04%
+Inference time: 3.25 seconds
+
+CONCLUSION
+
+Pipeline A performed better than Pipeline B on
+the selected external evaluation dataset.
+
+ImageNet normalization reduced accuracy from
+52.00% to 49.50% and recall from 91.00% to 31.00%.
+
+Therefore, the existing preprocessing pipeline
+is retained for the current implementation.
+
+These results are preliminary and do not establish
+general deepfake detection performance.

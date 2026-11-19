@@ -241,6 +241,108 @@ export const ResultCard: React.FC<ResultCardProps> = ({
         </div>
       </div>
 
+      {/* EfficientNet Model Comparison */}
+      {!isAudio && result.efficientNet && (
+        <div className="rounded-3xl border border-blue-500/20 bg-white/5 p-5 backdrop-blur-xl shadow-xl">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <Cpu className="h-5 w-5 text-blue-400" />
+              <h2 className="text-sm font-bold text-slate-100">
+                Model Comparison
+              </h2>
+            </div>
+
+            <span className="rounded-full bg-blue-500/10 border border-blue-500/20 px-3 py-1 text-xs text-blue-300">
+              EfficientNet-B0
+            </span>
+          </div>
+
+          {result.efficientNet.status === 'available' ? (
+            <>
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs text-slate-400">Gemini Analysis</p>
+                  <p className="mt-2 text-lg font-bold text-slate-100">
+                    {result.prediction}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Confidence: {result.confidence.toFixed(1)}%
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs text-slate-400">EfficientNet-B0 Prediction</p>
+                  <p className={`mt-2 text-lg font-bold ${
+                    result.efficientNet.prediction === 'DEEPFAKE'
+                      ? 'text-rose-400'
+                      : 'text-emerald-400'
+                  }`}>
+                    {result.efficientNet.prediction}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Inference: {result.efficientNet.inferenceTimeMs?.toFixed(2)} ms
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-slate-400">Real Probability</span>
+                    <span className="text-emerald-400 font-mono">
+                      {((result.efficientNet.realProbability ?? 0) * 100).toFixed(2)}%
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+                    <div
+                      className="h-full bg-emerald-500 rounded-full"
+                      style={{
+                        width: `${(result.efficientNet.realProbability ?? 0) * 100}%`
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-slate-400">Fake Probability</span>
+                    <span className="text-rose-400 font-mono">
+                      {((result.efficientNet.fakeProbability ?? 0) * 100).toFixed(2)}%
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+                    <div
+                      className="h-full bg-rose-500 rounded-full"
+                      style={{
+                        width: `${(result.efficientNet.fakeProbability ?? 0) * 100}%`
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-slate-300">
+                <strong className="text-slate-100">Model agreement: </strong>
+                {result.prediction === 'UNCERTAIN'
+                  ? 'Gemini returned an uncertain result; agreement cannot be determined.'
+                  : result.prediction === result.efficientNet.prediction
+                  ? 'Both models returned the same classification.'
+                  : 'The models returned different classifications. Further verification is recommended.'}
+              </div>
+            </>
+          ) : (
+            <p className="mt-4 text-sm text-amber-300">
+              EfficientNet service unavailable: {result.efficientNet.error}
+            </p>
+          )}
+
+          <p className="mt-3 text-[11px] text-slate-500">
+            Model outputs are displayed separately. Their probabilities are
+            not combined into a single confidence score.
+          </p>
+        </div>
+      )}
+
       {/* Main Dual Grid: Visual/Audio Inspector & Key Indicators */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         {/* Left Column: Visual Media / Audio Inspector (7 cols) */}

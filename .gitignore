@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+efficientnet-service/venv/
+__pycache__/
+*.pyc

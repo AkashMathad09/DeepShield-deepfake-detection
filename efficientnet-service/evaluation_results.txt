@@ -1,0 +1,33 @@
+# DeepShield – EfficientNet-B0 Evaluation Results
+
+**Evaluation dataset:** Real vs Fake Faces  
+**Evaluation samples:** 200 (100 REAL and 100 FAKE)  
+**Model:** EfficientNet-B0  
+**Input resolution:** 224 × 224 pixels
+
+## Performance Metrics
+
+| Metric | Result |
+|---|---:|
+| Accuracy | 52.00% |
+| Precision | 51.12% |
+| Recall | 91.00% |
+| F1-score | 65.47% |
+| Average inference time | 25.11 ms |
+
+## Confusion Matrix
+
+| Actual / Predicted | REAL | FAKE |
+|---|---:|---:|
+| REAL | 13 | 87 |
+| FAKE | 9 | 91 |
+
+## Analysis
+
+The model correctly classified 104 out of 200 test images. It demonstrated a high recall of 91% for fake images but produced a substantial number of false-positive classifications for real images.
+
+The overall accuracy of 52% indicates limited generalization on this external evaluation dataset. A possible contributing factor is the difference between the FaceForensics++ C23 training domain and the evaluation dataset.
+
+Further investigation of preprocessing, dataset characteristics and model generalization is required before considering the model suitable for practical deepfake detection.
+
+**Note:** These results represent a preliminary evaluation on 200 images and should not be interpreted as the model's general performance across all deepfake datasets.
