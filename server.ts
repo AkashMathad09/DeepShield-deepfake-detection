@@ -68,6 +68,10 @@ async function startServer() {
   app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
   // ================= API ROUTES =================
+  app.use('/api', (_req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    next();
+  });
 
   // 1. Health Check
   app.get('/api/health', (_req: Request, res: Response) => {

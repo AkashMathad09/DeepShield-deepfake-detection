@@ -40,15 +40,144 @@ export default function App() {
     }
   }, [history]);
 
+  // Refresh proxy session cookie via a hidden same-origin iframe when preview auth returns a Cookie check HTML page
+  const refreshProxyAuthCookie = (): Promise<void> => {
+    return new Promise((resolve) => {
+      if (typeof document === 'undefined') {
+        resolve();
+        return;
+      }
+
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.width = '1px';
+      iframe.style.height = '1px';
+      iframe.style.opacity = '0';
+      iframe.style.pointerEvents = 'none';
+      iframe.setAttribute('aria-hidden', 'true');
+
+      let settled = false;
+      const cleanup = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(hardTimeout);
+        setTimeout(() => {
+          iframe.remove();
+        }, 100);
+        resolve();
+      };
+
+      const hardTimeout = setTimeout(cleanup, 3500);
+
+      iframe.onload = () => {
+        try {
+          const title = iframe.contentDocument?.title || '';
+          const bodyText = iframe.contentDocument?.body?.innerText || '';
+          if (bodyText.includes('"status":"ok"')) {
+            cleanup();
+            return;
+          }
+          if (/cookie\s*check/i.test(title)) {
+            setTimeout(cleanup, 1200);
+            return;
+          }
+        } catch {
+          // Cross-origin redirect inside iframe; allow brief settle before retrying
+        }
+        setTimeout(cleanup, 600);
+      };
+
+      iframe.onerror = cleanup;
+      iframe.src = `/api/health?_auth=${Date.now()}`;
+      document.body.appendChild(iframe);
+    });
+  };
+
+  // Fetch JSON API endpoint with automatic retry on proxy warmup or Cookie check interstitials
+  const fetchApiJson = async (
+    url: string,
+    initOrFactory: RequestInit | (() => RequestInit) = {}
+  ): Promise<any> => {
+    const maxAttempts = 4;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const init = typeof initOrFactory === 'function' ? initOrFactory() : initOrFactory;
+      const response = await fetch(url, {
+        ...init,
+        credentials: 'include',
+        cache: 'no-store',
+        headers: {
+          Accept: 'application/json',
+          ...(init.headers || {}),
+        },
+      });
+
+      const text = await response.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || `Request failed with status ${response.status}.`);
+        }
+        return data;
+      } catch (err: any) {
+        if (err instanceof SyntaxError || !text.trim().startsWith('{')) {
+          const isHtml =
+            text.trim().startsWith('<') ||
+            text.includes('<!DOCTYPE') ||
+            text.includes('<html');
+
+          if (isHtml) {
+            const titleMatch = text.match(/<title>([^<]+)<\/title>/i);
+            const htmlTitle = titleMatch ? titleMatch[1].trim() : 'HTML response';
+            const isCookieCheck =
+              /cookie\s*check/i.test(htmlTitle) || /cookie\s*check/i.test(text);
+            const isWarmup =
+              text.includes('Starting Server') ||
+              response.status === 502 ||
+              response.status === 503 ||
+              response.status === 504;
+
+            if (isCookieCheck && attempt < maxAttempts) {
+              await refreshProxyAuthCookie();
+              await new Promise((r) => setTimeout(r, 500));
+              continue;
+            }
+
+            if (isWarmup && attempt < maxAttempts) {
+              await new Promise((r) => setTimeout(r, 1500 * attempt));
+              continue;
+            }
+
+            if (isCookieCheck) {
+              throw new Error(
+                'Preview session cookie verification expired. Please click "Refresh Preview" or reload the browser tab and try again.'
+              );
+            }
+
+            throw new Error(
+              `Server returned an HTML page (${response.status}: ${htmlTitle}) instead of JSON. Please wait a moment and try again.`
+            );
+          }
+
+          if (!response.ok) {
+            throw new Error(`Server error (${response.status}): ${text.slice(0, 120)}`);
+          }
+          throw new Error('Invalid JSON response from server.');
+        }
+        throw err;
+      }
+    }
+
+    throw new Error('Server remained unavailable after retries. Please try again.');
+  };
+
   // Load sample test fixtures from backend (Images & Videos only)
   useEffect(() => {
-    fetch('/api/samples')
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
-      })
+    let cancelled = false;
+    fetchApiJson('/api/samples', { method: 'GET' })
       .then((data) => {
-        if (data.success && data.samples) {
+        if (!cancelled && data.success && data.samples) {
           setSamples(
             data.samples.filter(
               (s: SampleMediaItem) => s.mediaType === 'image' || s.mediaType === 'video'
@@ -59,6 +188,9 @@ export default function App() {
       .catch((err) => {
         console.warn('Could not load samples from API:', err);
       });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const addRecordToHistory = (result: AnalysisResult) => {
@@ -82,66 +214,6 @@ export default function App() {
     } catch {}
   };
 
-  // Fetch JSON API endpoint with automatic retry if preview proxy is warming up (502/warmup HTML)
-  const fetchApiJson = async (url: string, init: RequestInit): Promise<any> => {
-    const maxAttempts = 3;
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const response = await fetch(url, {
-        ...init,
-        credentials: 'same-origin',
-        headers: {
-          Accept: 'application/json',
-          ...(init.headers || {}),
-        },
-      });
-
-      const text = await response.text();
-      let data: any;
-      try {
-        data = JSON.parse(text);
-        if (!response.ok || !data.success) {
-          throw new Error(data.error || `Request failed with status ${response.status}.`);
-        }
-        return data;
-      } catch (err: any) {
-        if (err instanceof SyntaxError || !text.trim().startsWith('{')) {
-          const isHtml =
-            text.trim().startsWith('<') ||
-            text.includes('<!DOCTYPE') ||
-            text.includes('<html');
-
-          if (isHtml) {
-            const isWarmup =
-              text.includes('Starting Server') ||
-              response.status === 502 ||
-              response.status === 503 ||
-              response.status === 504;
-
-            if (isWarmup && attempt < maxAttempts) {
-              await new Promise((r) => setTimeout(r, 1800 * attempt));
-              continue;
-            }
-
-            const titleMatch = text.match(/<title>([^<]+)<\/title>/i);
-            const htmlTitle = titleMatch ? titleMatch[1].trim() : 'HTML response';
-            throw new Error(
-              `Server returned an HTML page (${response.status}: ${htmlTitle}) instead of JSON. Please wait a moment and try again, or refresh the preview tab if session auth expired.`
-            );
-          }
-
-          if (!response.ok) {
-            throw new Error(`Server error (${response.status}): ${text.slice(0, 120)}`);
-          }
-          throw new Error('Invalid JSON response from server.');
-        }
-        throw err;
-      }
-    }
-
-    throw new Error('Server remained unavailable after retries. Please try again.');
-  };
-
   // Handle uploaded file analysis
   const handleAnalyzeFile = async (file: File, sampleFrames: number) => {
     setErrorMsg(null);
@@ -151,27 +223,32 @@ export default function App() {
 
     try {
       const endpoint = isVideo ? '/api/detect/video' : '/api/detect/image';
-      const data = await fetchApiJson(endpoint, {
-        method: 'POST',
-        body: (() => {
-          const fd = new FormData();
-          fd.append('media', file);
-          if (isVideo) {
-            fd.append('sampleFrames', sampleFrames.toString());
-          }
-          return fd;
-        })(),
+      const data = await fetchApiJson(endpoint, () => {
+        const fd = new FormData();
+        fd.append('media', file);
+        if (isVideo) {
+          fd.append('sampleFrames', sampleFrames.toString());
+        }
+        return {
+          method: 'POST',
+          body: fd,
+        };
       });
 
       setAnalysisResult(data.result);
       addRecordToHistory(data.result);
       setActiveTab('studio');
     } catch (err: any) {
-      console.error('Analysis error:', err);
+      const rawMessage = err?.message || 'An unexpected error occurred during analysis.';
+      if (/session cookie|refresh preview/i.test(rawMessage)) {
+        console.warn('Preview session refresh needed:', rawMessage);
+      } else {
+        console.error('Analysis error:', err);
+      }
       const msg =
         err instanceof TypeError && /fetch/i.test(err.message)
           ? 'Network error: Unable to reach the DeepShield backend API. Please verify the server is running.'
-          : err.message || 'An unexpected error occurred during analysis.';
+          : rawMessage;
       setErrorMsg(msg);
     } finally {
       setIsAnalyzing(false);
@@ -194,11 +271,16 @@ export default function App() {
       addRecordToHistory(data.result);
       setActiveTab('studio');
     } catch (err: any) {
-      console.error('Sample analysis error:', err);
+      const rawMessage = err?.message || 'Failed to analyze selected test fixture.';
+      if (/session cookie|refresh preview/i.test(rawMessage)) {
+        console.warn('Preview session refresh needed:', rawMessage);
+      } else {
+        console.error('Sample analysis error:', err);
+      }
       const msg =
         err instanceof TypeError && /fetch/i.test(err.message)
           ? 'Network error: Unable to reach the DeepShield backend API.'
-          : err.message || 'Failed to analyze selected test fixture.';
+          : rawMessage;
       setErrorMsg(msg);
     } finally {
       setIsAnalyzing(false);
@@ -238,17 +320,27 @@ export default function App() {
       <main className="flex-1 py-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
         {/* Error Notification */}
         {errorMsg && (
-          <div className="mb-6 rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-xs text-rose-200 backdrop-blur-xl shadow-lg flex items-center justify-between gap-4">
+          <div className="mb-6 rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-xs text-rose-200 backdrop-blur-xl shadow-lg flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center space-x-2.5">
               <AlertCircle className="h-4 w-4 text-rose-400 flex-shrink-0" />
               <span>{errorMsg}</span>
             </div>
-            <button
-              onClick={() => setErrorMsg(null)}
-              className="font-bold text-rose-300 hover:text-white transition"
-            >
-              Dismiss
-            </button>
+            <div className="flex items-center gap-3">
+              {/session cookie|refresh preview|html/i.test(errorMsg) && (
+                <button
+                  onClick={() => window.location.reload()}
+                  className="rounded-lg border border-rose-400/40 bg-rose-500/20 px-3 py-1 font-semibold text-rose-100 hover:bg-rose-500/30 transition"
+                >
+                  Refresh Preview
+                </button>
+              )}
+              <button
+                onClick={() => setErrorMsg(null)}
+                className="font-bold text-rose-300 hover:text-white transition"
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
         )}
 
