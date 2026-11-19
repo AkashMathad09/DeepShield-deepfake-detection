@@ -9,3 +9,5 @@ coverage/
 efficientnet-service/venv/
 __pycache__/
 *.pyc
+evaluation_dataset/
+test_dataset/
